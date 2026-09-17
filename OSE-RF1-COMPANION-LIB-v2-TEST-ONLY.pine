@@ -1,0 +1,467 @@
+//@version=6
+// =============================================================================
+//  OSE-RF1-COMPANION — PINE LIBRARY — TEST ONLY
+//  Relocation host for the RF-1 Companion compute core (R1 Profile, R2
+//  Estimated Delta). Moved VERBATIM from
+//  OSE-PRE8-RF1-R6-R7-INTEGRATED-v0.1.2-TEST-ONLY.pine  SHA-256
+//  efe66f5e7fb0e242cf492f58a591e2e2a4b6a21e34fa07e06a0346aa3f873965
+//
+//  PURPOSE: remove Companion compute mass from the indicator's 100,256
+//  compiled-token budget. Imported libraries carry their own budget.
+//
+//  EQUIVALENCE CONTRACT
+//    1  Every moved statement is byte-identical to the parent except that the
+//       four RF1_* constants are inlined as their literal values:
+//         RF1_CAP -> 2048   RF1_W -> 11   RF1_N -> 256   RF1_MS1 -> 60000
+//       Pine forbids exported functions from depending on library globals, so
+//       the constants are inlined. The VALUES are unchanged.
+//    2  Persistent state (var) moves INSIDE the exported functions. Each has
+//       exactly ONE unconditional call site per bar in the indicator, so the
+//       writer, the write order, the reset rules, preview/commit gating and
+//       snapshot immutability are unchanged. State LOCATION moves; state
+//       SEMANTICS do not.
+//    3  No data request is duplicated. request.security_lower_tf stays in the
+//       indicator; its seven series are passed in as parameters.
+//    4  No DMI/RSI/MACD calculation is added here: those remain Stage 6 request
+//       tuple positions in the indicator.
+//    5  No engine, Queue, Funnel, signal, alert or export contract is touched.
+//
+//  NOT COMPILED. TRADINGVIEW COMPILE/LOAD NOT RUN. No token count is claimed.
+// =============================================================================
+library("OSE_RF1_COMPANION", overlay = false)
+
+// ---- R1 bin-lattice helpers (verbatim; RF1_CAP inlined) ----------------------
+rf1_idx(int k) =>
+    int m = k % 2048
+    m < 0 ? m + 2048 : m
+rf1_get(array<float> a, int k) => array.get(a, rf1_idx(k))
+rf1_add(array<float> a, int k, float v) => array.set(a, rf1_idx(k), rf1_get(a, k) + v)
+rf1_zero(array<float> a) =>
+    array.fill(a, 0.0)
+    true
+
+// ---- R1 one-parent fold (verbatim) ------------------------------------------
+rf1_fold(array<float> a, int minKey0, int maxKey0, float mass0,
+         array<int> ts, array<int> tc, array<float> hs, array<float> ls, array<float> vs,
+         int parentOpen, int parentClose, int step) =>
+    string err = ""
+    int loKey = minKey0
+    int hiKey = maxKey0
+    float mass = mass0
+    int n = array.size(ts)
+    if n == 0 or array.size(tc) != n or array.size(hs) != n or array.size(ls) != n or array.size(vs) != n
+        err := "LTF_SHAPE"
+    else
+        int prev = na
+        for i = 0 to n - 1
+            int st = array.get(ts, i)
+            int en = array.get(tc, i)
+            float h = array.get(hs, i) / syminfo.mintick
+            float l = array.get(ls, i) / syminfo.mintick
+            float v = array.get(vs, i)
+            if na(st) or na(en) or st < parentOpen or en > parentClose or st >= en or (not na(prev) and st <= prev)
+                err := "LTF_IDENTITY"
+                break
+            if na(h) or na(l) or na(v) or h < l or v < 0
+                err := "LTF_VALUE"
+                break
+            prev := st
+            if v > 0
+                int first = int(math.floor(l / step))
+                int last = h == l ? first : int(math.ceil(h / step)) - 1
+                int nextLo = na(loKey) ? first : math.min(loKey, first)
+                int nextHi = na(hiKey) ? last : math.max(hiKey, last)
+                if nextHi - nextLo + 1 > 2048
+                    err := "PROFILE_CAPACITY"
+                    break
+                if h == l
+                    rf1_add(a, first, v)
+                else
+                    int reserve = first
+                    float bestOv = -1.0
+                    for k = first to last
+                        float ov = math.max(0.0, math.min(h, float(k + 1) * step) - math.max(l, float(k) * step))
+                        if ov > bestOv
+                            bestOv := ov
+                            reserve := k
+                    float other = 0.0
+                    for k = first to last
+                        float ov = math.max(0.0, math.min(h, float(k + 1) * step) - math.max(l, float(k) * step))
+                        if ov > 0 and k != reserve
+                            float x = v * ov / (h - l)
+                            rf1_add(a, k, x)
+                            other += x
+                    if bestOv <= 0 or v - other < 0
+                        err := "PROFILE_ALLOCATION"
+                        break
+                    rf1_add(a, reserve, v - other)
+                loKey := nextLo
+                hiKey := nextHi
+                mass += v
+    [loKey, hiKey, mass, err]
+
+// ---- R1 POC / value-area resolution (verbatim) ------------------------------
+rf1_levels(array<float> a, int bottom, int top, float total, int step) =>
+    int poc = na
+    float best = 0.0
+    if not na(bottom) and not na(top) and total > 0
+        for k = bottom to top
+            float v = rf1_get(a, k)
+            if v > best
+                best := v
+                poc := k
+    int lo = poc
+    int hi = poc
+    float inside = na(poc) ? na : rf1_get(a, poc)
+    if not na(poc)
+        while inside < total * 0.70 and (lo > bottom or hi < top)
+            bool takeLeft = false
+            if hi == top
+                takeLeft := true
+            else if lo > bottom
+                float lv = rf1_get(a, lo - 1)
+                float rv = rf1_get(a, hi + 1)
+                takeLeft := lv > rv or (lv == rv and poc - (lo - 1) <= (hi + 1) - poc)
+            if takeLeft
+                lo -= 1
+                inside += rf1_get(a, lo)
+            else
+                hi += 1
+                inside += rf1_get(a, hi)
+    float tick = syminfo.mintick
+    float p = na(poc) ? na : (poc + 0.5) * step * tick
+    float val = na(lo) ? na : lo * step * tick
+    float vah = na(hi) ? na : (hi + 1) * step * tick
+    [p, val, vah]
+
+// ---- R2 estimated-delta fold (verbatim) -------------------------------------
+rf1_deltaFold(array<int> ts, array<int> tc, array<float> os, array<float> hs,
+              array<float> ls, array<float> cs, array<float> vs,
+              int parentOpen, int parentClose, float seedClose, int seedSign, int seedEnd) =>
+    float pos = 0.0
+    float neg = 0.0
+    float unknown = 0.0
+    float lastClose = seedClose
+    int lastSign = seedSign
+    int lastEnd = seedEnd
+    int expected = parentOpen
+    bool dense = true
+    string err = ""
+    int n = array.size(ts)
+    if array.size(tc) != n or array.size(os) != n or array.size(hs) != n or array.size(ls) != n or array.size(cs) != n or array.size(vs) != n
+        err := "LTF_SHAPE"
+    else if n == 0
+        err := "NO_DATA"
+    else
+        for i = 0 to n - 1
+            int st = array.get(ts, i)
+            int en = array.get(tc, i)
+            float o = array.get(os, i)
+            float h = array.get(hs, i)
+            float l = array.get(ls, i)
+            float c = array.get(cs, i)
+            float v = array.get(vs, i)
+            if na(st) or na(en) or st < expected or en > parentClose or en - st != 60000
+                err := "LTF_IDENTITY"
+                break
+            if na(o) or na(h) or na(l) or na(c) or na(v) or v < 0 or h < l or o < l or o > h or c < l or c > h
+                err := "LTF_VALUE"
+                break
+            dense := dense and st == expected
+            // Unknown intervening tape breaks doji inheritance, including at RTH reset.
+            if na(lastEnd) or st != lastEnd
+                lastClose := na
+                lastSign := 0
+            int sign = c > o ? 1 : c < o ? -1 : na(lastClose) ? 0 : c > lastClose ? 1 : c < lastClose ? -1 : lastSign
+            if sign > 0
+                pos += v
+            else if sign < 0
+                neg += v
+            else
+                unknown += v
+            lastClose := c
+            lastSign := sign
+            lastEnd := en
+            expected := en
+    dense := dense and expected == parentClose and err == ""
+    // Reject the whole malformed parent; do not leak a partially traversed prefix.
+    if err != ""
+        pos := na
+        neg := na
+        unknown := na
+        lastClose := na
+        lastSign := 0
+        lastEnd := na
+    [pos, neg, unknown, lastClose, lastSign, lastEnd, dense, err]
+
+// =============================================================================
+// EXPORTED SURFACE
+// =============================================================================
+export type ProfileResult
+    float poc
+    float val
+    float vah
+    string quality
+    bool confirmed
+    int step
+    int minKey
+    int maxKey
+    int sDate
+    array<float> bins
+
+export type DeltaResult
+    float positive
+    float negative
+    float unclassified
+    float estimated
+    float sessionPositive
+    float sessionNegative
+    float sessionUnclassified
+    float sessionCvd
+    float volumeResidual
+    string coverage
+    string reconciliation
+    string classification
+    string sessionQuality
+    bool confirmed
+
+// Wrapped bin read for the R7 histogram, which draws from the committed bins.
+export binAt(array<float> a, int k) =>
+    int m = k % 2048
+    array.get(a, m < 0 ? m + 2048 : m)
+
+// R1 per-bar pass. Body below is the parent block, verbatim, indented.
+export profileUpdate(bool COMMIT_DATA, bool newRthDay, bool actualRthBar,
+      int curDate, int prevSessDate, int prevSessClass, int C_NORMAL,
+      float rthH, float rthL,
+      array<int> rf1_t, array<int> rf1_tc, array<float> rf1_h,
+      array<float> rf1_l, array<float> rf1_v) =>
+    var array<float> rf1_ranges = array.new_float()
+    var array<float> rf1_bins = array.new_float(2048, 0.0)
+    var float rf1_sHi = na
+    var float rf1_sLo = na
+    var int rf1_sDate = na
+    var int rf1_step = na
+    var int rf1_minKey = na
+    var int rf1_maxKey = na
+    var float rf1_mass = 0.0
+    var int rf1_lastParent = na
+    float rf1_profilePoc = na
+    float rf1_profileVal = na
+    float rf1_profileVah = na
+    string rf1_profileQuality = "WARMUP"
+    bool rf1_profileConfirmed = false
+
+    if COMMIT_DATA and newRthDay
+        if not na(rf1_sDate) and not na(rf1_sHi) and not na(rf1_sLo) and prevSessDate == rf1_sDate and prevSessClass == C_NORMAL
+            array.push(rf1_ranges, (rf1_sHi - rf1_sLo) / syminfo.mintick)
+            if array.size(rf1_ranges) > 11
+                array.shift(rf1_ranges)
+        rf1_step := array.size(rf1_ranges) == 11 ? math.max(1, int(math.ceil(array.median(rf1_ranges) / 256))) : na
+        rf1_zero(rf1_bins)
+        rf1_minKey := na
+        rf1_maxKey := na
+        rf1_mass := 0.0
+        rf1_lastParent := na
+        rf1_sDate := curDate
+        rf1_sHi := na
+        rf1_sLo := na
+
+    if COMMIT_DATA
+        rf1_sHi := na(rf1_sHi) ? rthH : math.max(rf1_sHi, rthH)
+        rf1_sLo := na(rf1_sLo) ? rthL : math.min(rf1_sLo, rthL)
+
+    if actualRthBar and not na(rf1_step)
+        array<float> rf1_work = array.copy(rf1_bins)
+        [rf1_wMin, rf1_wMax, rf1_wMass, rf1_err] = rf1_fold(rf1_work, rf1_minKey, rf1_maxKey, rf1_mass, rf1_t, rf1_tc, rf1_h, rf1_l, rf1_v, time, time_close, rf1_step)
+        bool rf1_dense = array.size(rf1_t) == 5 and array.get(rf1_t, 0) == time and array.get(rf1_tc, array.size(rf1_tc) - 1) == time_close
+        rf1_profileQuality := rf1_err != "" ? rf1_err : rf1_dense ? "COMPLETE" : "PARTIAL"
+        if rf1_err == ""
+            [rf1_p, rf1_lo, rf1_hi] = rf1_levels(rf1_work, rf1_wMin, rf1_wMax, rf1_wMass, rf1_step)
+            rf1_profilePoc := rf1_p
+            rf1_profileVal := rf1_lo
+            rf1_profileVah := rf1_hi
+            if COMMIT_DATA and (na(rf1_lastParent) or rf1_lastParent != time)
+                rf1_bins := rf1_work
+                rf1_minKey := rf1_wMin
+                rf1_maxKey := rf1_wMax
+                rf1_mass := rf1_wMass
+                rf1_lastParent := time
+                rf1_profileConfirmed := true
+    ProfileResult.new(rf1_profilePoc, rf1_profileVal, rf1_profileVah, rf1_profileQuality, rf1_profileConfirmed, rf1_step, rf1_minKey, rf1_maxKey, rf1_sDate, rf1_bins)
+
+// R2 per-bar pass. Body below is the parent block, verbatim, indented.
+export deltaUpdate(bool COMMIT_DATA, bool newRthDay, bool actualRthBar,
+      int curDate, float rthV,
+      array<int> rf1_t, array<int> rf1_tc, array<float> rf1_o, array<float> rf1_h,
+      array<float> rf1_l, array<float> rf1_c, array<float> rf1_v) =>
+    var float rf1_deltaCommittedPositive = 0.0
+    var float rf1_deltaCommittedNegative = 0.0
+    var float rf1_deltaCommittedUnclassified = 0.0
+    var float rf1_deltaPrevClose = na
+    var int rf1_deltaPrevSign = 0
+    var int rf1_deltaPrevEnd = na
+    var int rf1_deltaLastParent = na
+    var int rf1_deltaDate = na
+    var bool rf1_deltaSeen = false
+    var bool rf1_deltaSessionComplete = false
+    float rf1_deltaPositive = na
+    float rf1_deltaNegative = na
+    float rf1_deltaUnclassified = na
+    float rf1_estimatedDelta = na
+    float rf1_deltaSessionPositive = na
+    float rf1_deltaSessionNegative = na
+    float rf1_deltaSessionUnclassified = na
+    float rf1_deltaSessionCvd = na
+    float rf1_deltaVolumeResidual = na
+    string rf1_deltaCoverage = "NO_DATA"
+    string rf1_deltaReconciliation = "UNAVAILABLE"
+    string rf1_deltaClassification = "UNAVAILABLE"
+    string rf1_deltaSessionQuality = "NO_DATA"
+    bool rf1_deltaConfirmed = false
+
+    if actualRthBar
+        // Working scalars are disposable on every execution; no varip state.
+        bool rf1_dReset = newRthDay or na(rf1_deltaDate) or rf1_deltaDate != curDate
+        float rf1_dBasePos = rf1_dReset ? 0.0 : rf1_deltaCommittedPositive
+        float rf1_dBaseNeg = rf1_dReset ? 0.0 : rf1_deltaCommittedNegative
+        float rf1_dBaseUnknown = rf1_dReset ? 0.0 : rf1_deltaCommittedUnclassified
+        bool rf1_dSeen = not rf1_dReset and rf1_deltaSeen
+        bool rf1_dFull = rf1_dReset ? hour(time, "America/New_York") == 9 and minute(time, "America/New_York") == 30 : rf1_deltaSessionComplete
+        [rf1_dp, rf1_dn, rf1_du, rf1_dc, rf1_ds, rf1_de, rf1_ddense, rf1_derr] = rf1_deltaFold(rf1_t, rf1_tc, rf1_o, rf1_h, rf1_l, rf1_c, rf1_v, time, time_close, rf1_dReset ? na : rf1_deltaPrevClose, rf1_dReset ? 0 : rf1_deltaPrevSign, rf1_dReset ? na : rf1_deltaPrevEnd)
+        bool rf1_dValid = rf1_derr == ""
+        bool rf1_dReconciled = false
+        // A missing parent cannot be repaired by later valid parents in the same session.
+        if not rf1_dReset and (na(rf1_deltaLastParent) or time != rf1_deltaLastParent + 5 * 60000)
+            rf1_dFull := false
+        rf1_deltaCoverage := not rf1_dValid ? rf1_derr : rf1_ddense ? "COMPLETE" : "PARTIAL"
+        if rf1_dValid
+            rf1_deltaPositive := rf1_dp
+            rf1_deltaNegative := rf1_dn
+            rf1_deltaUnclassified := rf1_du
+            rf1_estimatedDelta := rf1_dp - rf1_dn
+            rf1_deltaClassification := rf1_du > 0 ? "UNCLASSIFIED_VOLUME" : "CLASSIFIED"
+            if not na(rthV) and rthV >= 0
+                rf1_deltaVolumeResidual := rthV - (rf1_dp + rf1_dn + rf1_du)
+                rf1_dReconciled := math.abs(rf1_deltaVolumeResidual) <= math.max(0.000001, math.abs(rthV) * 0.000001)
+                rf1_deltaReconciliation := rf1_dReconciled ? "MATCH" : "MISMATCH"
+            rf1_dBasePos += rf1_dp
+            rf1_dBaseNeg += rf1_dn
+            rf1_dBaseUnknown += rf1_du
+            rf1_dSeen := true
+        rf1_dFull := rf1_dFull and rf1_dValid and rf1_ddense and rf1_dReconciled
+        if rf1_dSeen
+            rf1_deltaSessionPositive := rf1_dBasePos
+            rf1_deltaSessionNegative := rf1_dBaseNeg
+            rf1_deltaSessionUnclassified := rf1_dBaseUnknown
+            rf1_deltaSessionCvd := rf1_dBasePos - rf1_dBaseNeg
+            rf1_deltaSessionQuality := rf1_dFull ? "COMPLETE" : "PARTIAL"
+        if COMMIT_DATA and (rf1_dReset or na(rf1_deltaLastParent) or rf1_deltaLastParent != time)
+            rf1_deltaCommittedPositive := rf1_dBasePos
+            rf1_deltaCommittedNegative := rf1_dBaseNeg
+            rf1_deltaCommittedUnclassified := rf1_dBaseUnknown
+            rf1_deltaPrevClose := rf1_dc
+            rf1_deltaPrevSign := rf1_ds
+            rf1_deltaPrevEnd := rf1_de
+            rf1_deltaLastParent := time
+            rf1_deltaDate := curDate
+            rf1_deltaSeen := rf1_dSeen
+            rf1_deltaSessionComplete := rf1_dFull
+            rf1_deltaConfirmed := true
+    DeltaResult.new(rf1_deltaPositive, rf1_deltaNegative, rf1_deltaUnclassified, rf1_estimatedDelta, rf1_deltaSessionPositive, rf1_deltaSessionNegative, rf1_deltaSessionUnclassified, rf1_deltaSessionCvd, rf1_deltaVolumeResidual, rf1_deltaCoverage, rf1_deltaReconciliation, rf1_deltaClassification, rf1_deltaSessionQuality, rf1_deltaConfirmed)
+
+// =============================================================================
+// v2 ADDITION — SELF-CONTAINED HELPERS RELOCATED FROM THE INDICATOR
+// Each body below is byte-identical to the parent except that its compile-time
+// const dependencies are inlined as their exact literal values:
+//   S7_NA -> "—"
+//   VP_NA -> "—"
+//   BIT_VWAP -> 16
+//   BIT_PDH -> 1
+//   BIT_PDL -> 2
+//   BIT_ORH -> 4
+//   BIT_ORL -> 8
+//   STATIC_MASK_MAX -> 15
+//   QB_Q1 -> 1
+//   QB_Q2 -> 2
+//   QB_Q3 -> 4
+//   QB_Q4 -> 8
+//   QB_Q5 -> 16
+// None of these reads any series global, so relocation cannot change behaviour.
+// hasBit is DUPLICATED here (library tokens are free); the indicator keeps its
+// own copy for its other 18 call sites, unchanged.
+// =============================================================================
+hasBit(int mask, int bit) =>
+    na(mask) or na(bit) or bit <= 0 ? false : math.floor(mask / bit) % 2 == 1
+
+export type QCount
+    int passed
+    int applicable
+    bool ok
+
+export rvolMedian(array<float> a) =>
+    float m = na
+    int   n = array.size(a)
+    if n > 0
+        if n > 1
+            for i = 0 to n - 2
+                int best = i
+                for j = i + 1 to n - 1
+                    if array.get(a, j) < array.get(a, best)
+                        best := j
+                if best != i
+                    float t = array.get(a, i)
+                    array.set(a, i, array.get(a, best))
+                    array.set(a, best, t)
+        int mid = math.floor(n / 2)
+        m := n % 2 == 1 ? array.get(a, mid) : (array.get(a, mid - 1) + array.get(a, mid)) / 2.0
+    m
+
+export s7_zoneText(int s7_mask) =>
+    string s7_t = "—"
+    if not na(s7_mask)
+        if s7_mask == 16
+            s7_t := "VWAP"
+        else if s7_mask > 0 and s7_mask <= 15
+            s7_t := hasBit(s7_mask, 1) ? "PDH" : ""
+            s7_t := hasBit(s7_mask, 2) ? (str.length(s7_t) > 0 ? s7_t + "+PDL" : "PDL") : s7_t
+            s7_t := hasBit(s7_mask, 4) ? (str.length(s7_t) > 0 ? s7_t + "+ORH" : "ORH") : s7_t
+            s7_t := hasBit(s7_mask, 8) ? (str.length(s7_t) > 0 ? s7_t + "+ORL" : "ORL") : s7_t
+    s7_t
+
+export vp_zoneText(int vp_mask) =>
+    string vp_t = "—"
+    if not na(vp_mask)
+        if vp_mask == 16
+            vp_t := "VWAP"
+        else if vp_mask > 0 and vp_mask <= 15
+            // Same four members, same PDH / PDL / ORH / ORL order, same "+"
+            // join; only the four structurally identical branches are folded
+            // into one bounded pass.
+            vp_t := ""
+            array<int>    vp_zb = array.from(1, 2, 4, 8)
+            array<string> vp_zn = array.from("YDAY HIGH", "YDAY LOW", "OPEN HIGH", "OPEN LOW")
+            for vp_i = 0 to 3
+                if hasBit(vp_mask, array.get(vp_zb, vp_i))
+                    vp_t := (str.length(vp_t) > 0 ? vp_t + "+" : "") + array.get(vp_zn, vp_i)
+    vp_t
+
+export qCount(int s7_flag, int s7_appl) =>
+    int  s7_ap = 0
+    int  s7_ps = 0
+    bool s7_ok = (not na(s7_flag)) and (not na(s7_appl)) and s7_flag >= 0 and s7_flag <= 31 and s7_appl >= 0 and s7_appl <= 31
+    if s7_ok
+        // Compiled-token consolidation (IC4-CTR1). The five per-bit terms of each
+        // sum are structurally identical, so they are counted by one bounded
+        // five-iteration pass instead of ten inlined hasBit terms. Applicable
+        // count and passed count are unchanged: s7_ap still counts applicable
+        // bits and s7_ps still counts applicable-AND-set bits, in the same
+        // Q1..Q5 order. FALSE and NOT APPLICABLE stay distinct.
+        array<int> s7_qb = array.from(1, 2, 4, 8, 16)
+        for s7_i = 0 to 4
+            int s7_b = array.get(s7_qb, s7_i)
+            if hasBit(s7_appl, s7_b)
+                s7_ap += 1
+                if hasBit(s7_flag, s7_b)
+                    s7_ps += 1
+    QCount.new(s7_ps, s7_ap, s7_ok)
