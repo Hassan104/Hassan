@@ -6945,10 +6945,10 @@ v4_makePane(array<string> texts, array<color> inks, array<color> backgrounds) =>
         table.cell_set_text(result, c, 0, " ")
         table.cell_set_text_size(result, c, 0, v4_font + 4)
     table.merge_cells(result, 0, 0, 10, 0)
-    core.v4_liveBand(result, 1, v4_TH, actualRthBar, atrLive, atrPctVal, atrRatioVal, impulseDirState, impulseExcessiveState, rf1_outDelta, rf1_outDeltaClassification, rf1_outDeltaCoverage, rf1_outDeltaNegative, rf1_outDeltaPositive, rf1_outDeltaReconciliation, rf1_outDeltaUnclassified, rf1_outDiMinus, rf1_outDiPlus, rf1_outMacdHistogram, rf1_outMacdLine, rf1_outMacdSignal, rf1_outPhase, rf1_outPoc, rf1_outProfileParentQuality, rf1_outRsi, rf1_outSessionCvd, rf1_outSessionDeltaQuality, rf1_outVah, rf1_outVal, s7_candDir, s7_candLive, s7_caseActive, s7_caseDir, s7_coreReady, s7_impulseOn, s7_revEvtText, s7_warnActive, structBias, v4_font, vwap, vwapSlopeRaw, vwapSlopeState)
+    core.v4_liveBand(result, 1, v4_TH, actualRthBar, adxVal, atrLive, atrPctVal, atrRatioVal, impulseDirState, impulseExcessiveState, relVol, relVolCum, rf1_outDelta, rf1_outDeltaClassification, rf1_outDeltaCoverage, rf1_outDeltaNegative, rf1_outDeltaPositive, rf1_outDeltaReconciliation, rf1_outDeltaUnclassified, rf1_outDiMinus, rf1_outDiPlus, rf1_outMacdHistogram, rf1_outMacdLine, rf1_outMacdSignal, rf1_outPhase, rf1_outPoc, rf1_outProfileParentQuality, rf1_outRsi, rf1_outSessionCvd, rf1_outSessionDeltaQuality, rf1_outVah, rf1_outVal, s7_candDir, s7_candLive, s7_caseActive, s7_caseDir, s7_coreReady, s7_impulseOn, s7_revEvtText, s7_warnActive, structBias, v4_font, vwap, vwapSlopeRaw, vwapSlopeState)
     if full
         core.v4_matrix(result, 0, 2, 4, false, texts, inks, backgrounds, v4_TH, v4_font, v4_hasObs, v4_obs, v4_sectionHead, v4_signalOverlay, v4_snapshotLabel)
-        core.v4_workspace(result, v4_TH, commonSetupReady, orHigh, orLow, orReady, pdh, pdl, s7_barrier, s7_candFamily, s7_candLive, s7_candObsId, s7_candTime, s7_caseActive, s7_caseEndReason, s7_caseEndedFlag, s7_caseId, s7_caseInitialStop, s7_caseTp1, s7_evtText, s7_premiseMask, s7_premiseTrace, s7_room, s7_tp1Reached, s7_trailReason, s7_trailStop, s7_trailUnlocked, s7_trailVersion, sqzCoreReady, staticCoreReady, v4_barrierRole, v4_cMode, v4_coverage, v4_events, v4_font, v4_hasObs, v4_obs, v4_reviewHorizon, v4_sectionHead, vp_zoneBounds, vp_zoneName, vp_zoneRole)
+        core.v4_workspace(result, v4_TH, commonSetupReady, efficiencyRatio, orHigh, orLow, orReady, pdh, pdl, s7_barrier, s7_candFamily, s7_candLive, s7_candObsId, s7_candTime, s7_caseActive, s7_caseEndReason, s7_caseEndedFlag, s7_caseId, s7_caseInitialStop, s7_caseTp1, s7_evtText, s7_premiseMask, s7_premiseTrace, s7_room, s7_tp1Reached, s7_trailReason, s7_trailStop, s7_trailUnlocked, s7_trailVersion, sqzCoreReady, staticCoreReady, v4_barrierRole, v4_cMode, v4_coverage, v4_events, v4_font, v4_hasObs, v4_obs, v4_reviewHorizon, v4_sectionHead, vp_zoneBounds, vp_zoneName, vp_zoneRole)
     result
 
 v4_makeOverlay(array<string> texts, array<color> inks, array<color> backgrounds) =>
@@ -6989,11 +6989,11 @@ if v4_refresh
         table.delete(v4_signalTable)
         v4_signalTable := na
     if s7_uiEnabled
-        [matrixTexts, matrixInks, matrixBackgrounds] = core.v4_matrixTruth(v4_TH, rf1_outRsi, rf1_outRsiAtSignal, rf1_outSignalCaptured, s7_caseActive, s7_caseId, s7_trailStop, s7_trailVersion, v4_hasObs, v4_matrixLive, v4_obs)
+        [matrixTexts, matrixInks, matrixBackgrounds] = core.v4_matrixTruth(v4_TH, adxVal, relVol, rf1_outRsi, rf1_outRsiAtSignal, rf1_outSignalCaptured, roc5, s7_caseActive, s7_caseId, s7_trailStop, s7_trailVersion, v4_hasObs, v4_matrixLive, v4_obs)
         if v4_signalOverlay != "OFF"
             v4_signalTable := v4_makeOverlay(matrixTexts, matrixInks, matrixBackgrounds)
         if v4_showCard
-            v4_cardTable := core.v4_makeTopBar(v4_TH, s7_qOk, s7_qPass, s7_stripAppl, s7_stripFlag, v4_font, v4_hasObs, v4_obs, v4_topClearance, vp_dirVal, vp_evtBg, vp_evtCell, vp_evtTnt, vp_famVal, vp_sqzBg, vp_sqzCell, vp_sqzTnt, vp_state, vp_stateBg, vp_stateTip, vp_stateTnt, vp_zoneBounds, vp_zoneName, vp_zoneRole)
+            v4_cardTable := core.v4_makeTopBar(v4_TH, s7_qOk, s7_qPass, s7_stripAppl, s7_stripFlag, s7_structText, v4_font, v4_hasObs, v4_obs, v4_topClearance, vp_dirVal, vp_evtBg, vp_evtCell, vp_evtTnt, vp_famVal, vp_sqzBg, vp_sqzCell, vp_sqzTnt, vp_state, vp_stateBg, vp_stateTip, vp_stateTnt, vp_zoneBounds, vp_zoneName, vp_zoneRole)
         if v4_showPane
             v4_paneTable := v4_makePane(matrixTexts, matrixInks, matrixBackgrounds)
         int barMs = int(timeframe.in_seconds(timeframe.period)) * 1000

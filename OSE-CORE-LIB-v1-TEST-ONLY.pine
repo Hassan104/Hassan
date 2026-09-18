@@ -845,7 +845,7 @@ export v4_matrix(table t, int col, int row, int span, bool overlay, array<string
             if overlay and c == 0
                 table.cell_set_tooltip(t, x, row + 1 + r, array.get(texts, n) + " · " + ident)
 
-export v4_matrixTruth(Theme TH, float rf1_outRsi, float rf1_outRsiAtSignal, bool rf1_outSignalCaptured, bool s7_caseActive, int s7_caseId, float s7_trailStop, int s7_trailVersion, bool v4_hasObs, bool v4_matrixLive, Obs v4_obs) =>
+export v4_matrixTruth(Theme TH, float adxVal, float relVol, float rf1_outRsi, float rf1_outRsiAtSignal, bool rf1_outSignalCaptured, float roc5, bool s7_caseActive, int s7_caseId, float s7_trailStop, int s7_trailVersion, bool v4_hasObs, bool v4_matrixLive, Obs v4_obs) =>
     // theme prologue: re-bind palette to the parent names (body unchanged)
     color VPS_A14AMB = TH.VPS_A14AMB
     color VPS_A14RED = TH.VPS_A14RED
@@ -921,7 +921,7 @@ export v4_matrixTruth(Theme TH, float rf1_outRsi, float rf1_outRsiAtSignal, bool
             array.push(backgrounds, array.get(vp_cB, vp_c))
     [texts, inks, backgrounds]
 
-export v4_liveBand(table t, int row, Theme TH, bool actualRthBar, float atrLive, float atrPctVal, float atrRatioVal, int impulseDirState, bool impulseExcessiveState, float rf1_outDelta, string rf1_outDeltaClassification, string rf1_outDeltaCoverage, float rf1_outDeltaNegative, float rf1_outDeltaPositive, string rf1_outDeltaReconciliation, float rf1_outDeltaUnclassified, float rf1_outDiMinus, float rf1_outDiPlus, float rf1_outMacdHistogram, float rf1_outMacdLine, float rf1_outMacdSignal, string rf1_outPhase, float rf1_outPoc, string rf1_outProfileParentQuality, float rf1_outRsi, float rf1_outSessionCvd, string rf1_outSessionDeltaQuality, float rf1_outVah, float rf1_outVal, int s7_candDir, bool s7_candLive, bool s7_caseActive, int s7_caseDir, bool s7_coreReady, bool s7_impulseOn, string s7_revEvtText, bool s7_warnActive, int structBias, int v4_font, float vwap, float vwapSlopeRaw, int vwapSlopeState) =>
+export v4_liveBand(table t, int row, Theme TH, bool actualRthBar, float adxVal, float atrLive, float atrPctVal, float atrRatioVal, int impulseDirState, bool impulseExcessiveState, float relVol, float relVolCum, float rf1_outDelta, string rf1_outDeltaClassification, string rf1_outDeltaCoverage, float rf1_outDeltaNegative, float rf1_outDeltaPositive, string rf1_outDeltaReconciliation, float rf1_outDeltaUnclassified, float rf1_outDiMinus, float rf1_outDiPlus, float rf1_outMacdHistogram, float rf1_outMacdLine, float rf1_outMacdSignal, string rf1_outPhase, float rf1_outPoc, string rf1_outProfileParentQuality, float rf1_outRsi, float rf1_outSessionCvd, string rf1_outSessionDeltaQuality, float rf1_outVah, float rf1_outVal, int s7_candDir, bool s7_candLive, bool s7_caseActive, int s7_caseDir, bool s7_coreReady, bool s7_impulseOn, string s7_revEvtText, bool s7_warnActive, int structBias, int v4_font, float vwap, float vwapSlopeRaw, int vwapSlopeState) =>
     // theme prologue: re-bind palette to the parent names (body unchanged)
     color VPS_A14AMB = TH.VPS_A14AMB
     color VPS_A14MUT = TH.VPS_A14MUT
@@ -1018,7 +1018,7 @@ export v4_liveBand(table t, int row, Theme TH, bool actualRthBar, float atrLive,
     table.cell_set_tooltip(t, 5, row, "Estimated price-direction delta (1m). " + rf1_outPhase + "\nCoverage: " + rf1_outDeltaCoverage + " / reconciliation: " + rf1_outDeltaReconciliation + "\nPositive: " + s7_numText(rf1_outDeltaPositive, format.volume) + " / negative: " + s7_numText(rf1_outDeltaNegative, format.volume) + " / unclassified: " + s7_numText(rf1_outDeltaUnclassified, format.volume) + "\nSession CVD: " + s7_numText(rf1_outSessionCvd, format.volume) + " / " + rf1_outSessionDeltaQuality)
     table.cell_set_tooltip(t, 7, row, "Estimated OHLCV profile. Parent quality: " + rf1_outProfileParentQuality + ". Session completeness is not certified by R1.\nHistogram: committed session, at most 120 display groups; orange = POC, blue = value area. Levels use original bins. Requires 11 eligible calibration sessions.")
 
-export v4_workspace(table t, Theme TH, bool commonSetupReady, float orHigh, float orLow, bool orReady, float pdh, float pdl, float s7_barrier, int s7_candFamily, bool s7_candLive, int s7_candObsId, int s7_candTime, bool s7_caseActive, string s7_caseEndReason, bool s7_caseEndedFlag, int s7_caseId, float s7_caseInitialStop, float s7_caseTp1, array<string> s7_evtText, int s7_premiseMask, bool s7_premiseTrace, float s7_room, bool s7_tp1Reached, string s7_trailReason, float s7_trailStop, bool s7_trailUnlocked, int s7_trailVersion, bool sqzCoreReady, bool staticCoreReady, int v4_barrierRole, string v4_cMode, array<V4Coverage> v4_coverage, array<V4Event> v4_events, int v4_font, bool v4_hasObs, Obs v4_obs, string v4_reviewHorizon, color v4_sectionHead, string vp_zoneBounds, string vp_zoneName, int vp_zoneRole) =>
+export v4_workspace(table t, Theme TH, bool commonSetupReady, float efficiencyRatio, float orHigh, float orLow, bool orReady, float pdh, float pdl, float s7_barrier, int s7_candFamily, bool s7_candLive, int s7_candObsId, int s7_candTime, bool s7_caseActive, string s7_caseEndReason, bool s7_caseEndedFlag, int s7_caseId, float s7_caseInitialStop, float s7_caseTp1, array<string> s7_evtText, int s7_premiseMask, bool s7_premiseTrace, float s7_room, bool s7_tp1Reached, string s7_trailReason, float s7_trailStop, bool s7_trailUnlocked, int s7_trailVersion, bool sqzCoreReady, bool staticCoreReady, int v4_barrierRole, string v4_cMode, array<V4Coverage> v4_coverage, array<V4Event> v4_events, int v4_font, bool v4_hasObs, Obs v4_obs, string v4_reviewHorizon, color v4_sectionHead, string vp_zoneBounds, string vp_zoneName, int vp_zoneRole) =>
     // theme prologue: re-bind palette to the parent names (body unchanged)
     color VPS_A14AMB = TH.VPS_A14AMB
     color VPS_A14REF = TH.VPS_A14REF
@@ -1127,7 +1127,7 @@ export v4_workspace(table t, Theme TH, bool commonSetupReady, float orHigh, floa
             table.cell_set_tooltip(t, col, row + 1, detail)
     true
 
-export v4_makeTopBar(Theme TH, bool s7_qOk, int s7_qPass, int s7_stripAppl, int s7_stripFlag, int v4_font, bool v4_hasObs, Obs v4_obs, int v4_topClearance, int vp_dirVal, color vp_evtBg, string vp_evtCell, color vp_evtTnt, int vp_famVal, color vp_sqzBg, string vp_sqzCell, color vp_sqzTnt, string vp_state, color vp_stateBg, string vp_stateTip, color vp_stateTnt, string vp_zoneBounds, string vp_zoneName, int vp_zoneRole) =>
+export v4_makeTopBar(Theme TH, bool s7_qOk, int s7_qPass, int s7_stripAppl, int s7_stripFlag, string s7_structText, int v4_font, bool v4_hasObs, Obs v4_obs, int v4_topClearance, int vp_dirVal, color vp_evtBg, string vp_evtCell, color vp_evtTnt, int vp_famVal, color vp_sqzBg, string vp_sqzCell, color vp_sqzTnt, string vp_state, color vp_stateBg, string vp_stateTip, color vp_stateTnt, string vp_zoneBounds, string vp_zoneName, int vp_zoneRole) =>
     // theme prologue: re-bind palette to the parent names (body unchanged)
     color VPS_A14AMB = TH.VPS_A14AMB
     color VPS_A14RED = TH.VPS_A14RED
