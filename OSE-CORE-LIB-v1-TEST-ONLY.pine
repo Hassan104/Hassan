@@ -1,0 +1,1221 @@
+//@version=6
+// =============================================================================
+//  OSE_CORE_LIB — CANONICAL CORE LIBRARY — v1 — TEST ONLY (C1 CANDIDATE)
+// 
+//  Relocation host for the canonical OSE deterministic computation domain:
+//    1  canonical record TYPES (Zone/Arm/Obs/V4*) so the Main and this library
+//       share one type identity;
+//    2  pure scalar/geometry KERNELS;
+//    3  pure TEXT/vocabulary helpers;
+//    4  presentation SALIENCE helpers (VP-07 bands);
+//    5  presentation COMPUTATION / table-writing renderers.
+// 
+//  PARENT (C0 Main)  : OSE-PRE8-RF1-R6-R7-INTEGRATED-v0.1.4-LIB-TEST-ONLY.pine
+//    SHA-256         : 65c1250c0563b2d8493dbe85feb7fe93db8abb924c02e5dd1b213e07cdad5e03
+// 
+//  EQUIVALENCE CONTRACT
+//    A  Every relocated body is BYTE-IDENTICAL to the parent, except:
+//         - theme colours arrive as one Theme object and are re-bound to their
+//           ORIGINAL names by a destructuring prologue, so the body text is
+//           unchanged;
+//         - calls to relocated helpers that now take Theme/extra arguments have
+//           those arguments appended;
+//         - v4_workspace calls the local vp_zoneText copy instead of the
+//           Companion export (identical code, avoids a library-to-library import).
+//    B  No relocated function writes ANY global: verified statically.
+//    C  No request.* call is relocated or duplicated. coreBundle() and
+//       adxErBundle() stay in Main because they are request.security callees.
+//    D  No canonical state, Observation/queue/funnel mutation, lifecycle
+//       transition, alert or export was relocated.
+// 
+//  NOT COMPILED. TRADINGVIEW COMPILE/LOAD NOT RUN. No token count is claimed.
+// =============================================================================
+library("OSE_CORE_LIB", overlay = false)
+
+// ---- canonical constants (verbatim copy of the Main const block) ----
+const string RTH_SESSION = "0930-1600:23456"        // 1=Sunday => 2..6 = Mon..Fri
+const string TZ          = "America/New_York"       // IANA string; fixed offsets prohibited
+const int MAXSLOTS = 96      // allocation margin
+const int FULLLAST = 77      // last slot of a full 09:30-16:00 session (78 slots)
+const int ECLAST   = 41      // last slot of a configured 09:30-13:00 early close (42 slots)
+const int C_NODATA    = 0    // NO_DATA_UNKNOWN
+const int C_TRUNC     = 1    // DATASET_START_TRUNCATION
+const int C_GAP       = 2    // SESSION_DATA_GAP
+const int C_EARLY     = 3    // CONFIGURED_EARLY_CLOSE
+const int C_SHORT     = 4    // UNEXPECTED_SHORTFALL
+const int C_NORMAL    = 5    // NORMAL_SESSION
+const int C_FULLCLOSE = 6    // EXPECTED_FULL_CLOSURE            (gap-derived only)
+const int C_UNSCHED   = 7    // UNSCHEDULED_HISTORICAL_FULL_CLOSURE (gap-derived only)
+const int   BB_LEN        = 20      // BB basis = SMA(20)
+const float BB_MULT       = 2.0
+const int   KC_LEN        = 20      // KC basis = EMA(20)
+const float KC_MULT       = 1.5
+const bool  KC_USE_TR     = true
+const int   HTF_EMA_LEN   = 60
+const int   ATR_LEN       = 14      // atrLive = atr(14) ; atrRef = atr(14)[1]
+const int   ROC_LEN       = 5
+const int   ATR_SHORT_LEN = 5
+const int   ATR_LONG_LEN  = 20
+const int   TRAIL_EMA_LEN = 9
+const int RESEARCH_START_HHMM     = 930    // researchStartTime      09:30 inclusive
+const int OBSERVATION_CUTOFF_HHMM = 1555   // observationCutoffTime  15:55 inclusive
+const int EXPORT_DRAIN_END_HHMM   = 1555   // exportDrainEndTime     15:55 inclusive
+const int ARMED_FOR_TOUCH = 0
+const int TOUCHED         = 1
+const int BIT_PDH = 1
+const int BIT_PDL = 2
+const int BIT_ORH = 4
+const int BIT_ORL = 8
+const int BIT_VWAP        = 16
+const int STATIC_MASK_MAX = 15   // 1|2|4|8 ; any mask above this is not static
+const int SIDE_ABOVE      =  1
+const int SIDE_BELOW      = -1
+const int SIDE_INSIDE     =  0
+const int ROLE_SUPPORT    =  1
+const int ROLE_RESISTANCE = -1
+const int ROLE_NEUTRAL    =  0
+const int DIR_LONG        =  1
+const int DIR_SHORT       = -1
+const int DIR_NEUTRAL     =  0
+const int FAM_VWR = 1
+const int FAM_LBO = 2
+const int FAM_LRT = 3
+const int FAM_SQZ = 4
+const string CANCEL_ACCEPT_REVERSED     = "ACCEPT_REVERSED"
+const string CANCEL_ZONE_MERGE_CONFLICT = "ZONE_MERGE_CONFLICT"
+const string CANCEL_ZONE_REBUILD        = "ZONE_REBUILD"
+const int RVOL_RING_CAPACITY = 20
+const float  MAX_APPROACH_ATR         = 1.00
+const int    RETEST_WINDOW_BARS       = 12
+const int    ARM_EXPIRY_VWR           = 6
+const int    ARM_EXPIRY_LBO           = 8
+const int    ARM_EXPIRY_LRT           = 4
+const int    ARM_EXPIRY_SQZ           = 8
+const int    SQZ_RELEASE_VALID_BARS   = 2
+const int    SQZ_STOP_LOOKBACK        = 3
+const float  RR_TARGET_1              = 1.50
+const float  MIN_RISK_ATR             = 0.30
+const bool   R8_ENABLED               = false
+const string MIDDAY_POLICY            = "ALLOW"
+const int    BLOCK_OPENING_MIN        = 15
+const int    BLOCK_CLOSING_MIN        = 30
+const bool   OBS_RECORD_RISK_REJECTED = true
+const bool   TRUNCATION_INTENTIONAL   = false
+const bool   ADX_ER_MODULES_ENABLED   = false
+const int    MIN_SCORE_TO_TRADE       = 0
+const int DIRCODE_LONG  = 1
+const int DIRCODE_SHORT = 2
+const int EFF_EARLY     = 1
+const int EFF_CONFIRMED = 2
+const int EFF_EXTENDED  = 3
+const int EFF_TOO_LATE  = 4
+const int RJ_NONE = 0
+const int RJ_R4   = 4     // SESSION_BLOCKED
+const int RJ_R5   = 5     // EVENT_DAY_BLOCK
+const int RJ_R6   = 6     // TOO_LATE
+const int RJ_R7   = 7     // RISK_TOO_WIDE
+const int RJ_R8   = 8     // RISK_TOO_TIGHT — disabled by R8_ENABLED
+const int RJ_R9   = 9     // NO_ROOM
+const int RJ_R10  = 10    // STOP_UNDEFINED
+const int RJ_R12  = 12    // STOP_TECHNICALLY_TOO_CLOSE
+const int RJ_R13  = 13    // RVOL_NOT_READY
+const int FLG_VWAPCONF   = 1        // bit 0
+const int FLG_DEEPRETEST = 2        // bit 1  — predicate issued by A23 R1
+const int FLG_PRIORARM   = 4        // bit 2
+const int FLG_SAMEBAR    = 8        // bit 3
+const int FLG_TRUNCATED  = 256      // bit 8
+const int FLG_ISEARLYCL  = 512      // bit 9
+const int FLG_SESSEARLY  = 1024     // bit 10
+const int FLG_GAPUNDEF   = 4096     // bit 12
+const int FLG_FIRSTTOUCH = 8192     // bit 13
+const int QB_Q1 = 1
+const int QB_Q2 = 2
+const int QB_Q3 = 4
+const int QB_Q4 = 8
+const int QB_Q5 = 16
+const bool STAGE6_EXECUTION_ENABLED = false
+const int SEL_NOT_SELECTED  = 0     // NOT_SELECTED  — Risk rejected
+const int SEL_EXEC_DISABLED = 2     // EXEC_DISABLED — Risk passed, exec disabled
+const int ARB_NONE          = 0     // no arbitration was invoked
+const int PENDING_QUEUE_CAP = 160
+const int READY_QUEUE_CAP   = 256
+const int BUCKET_MS         = 300000
+const int FWD_MAX_HORIZON   = 12
+const int QUEUE_NOT_ADMITTED = 0
+const int QUEUE_PENDING      = 1
+const int QUEUE_READY        = 2
+const int QUEUE_DRAINED      = 3
+const int QUEUE_DROPPED      = 4
+const int FLG_REF_UNAVAILABLE = 16      // bit 4
+const int FLG_REF_INVALID     = 32      // bit 5
+const int FLG_GAP_STOP        = 64      // bit 6
+const int FLG_GAP_TP1         = 128     // bit 7
+const int FLG_AMBIGUOUS       = 2048    // bit 11
+const string V4_G_MAIN = "OSE · 01 Interface"
+const string V4_G_STYLE = "OSE · 02 Appearance"
+const string V4_G_ZONES = "OSE · 03 Structure and price references"
+const string V4_G_PLAN = "OSE · 04 Management levels"
+const string V4_G_EVENTS = "OSE · 05 Candle markers"
+const string V4_G_REVIEW = "OSE · 06 Disclosure"
+const string V4_G_ALERT = "OSE · 07 Alerts"
+const string S7_BUILD            = "v1.0.0-IC4"
+const int    S7_HIST_CAP         = 64
+const int    S7_ROLE_SNAP_CAP    = 8
+const int    S7_ALERT_LIMIT      = 4096
+const int    S7_PROF_OFF = 0
+const int    S7_PROF_ESS = 1
+const int    S7_PROF_STD = 2
+const int    S7_PROF_DET = 3
+const int S7_PRI_REVERSED   = 90
+const int S7_PRI_STOPBREAK  = 85
+const int S7_PRI_SESSION    = 80
+const int S7_PRI_CRITICAL   = 70
+const int S7_PRI_STRUCTLOST = 60
+const int S7_PRI_TP1        = 55
+const int S7_PRI_ACTIVE     = 50
+const int S7_PRI_WARNING    = 45
+const int S7_PRI_TRAILON    = 40
+const int S7_PRI_IMPULSE    = 35
+const int S7_PRI_STOPTEST   = 30
+const int S7_PRI_DETAIL     = 15
+const string S7_NA          = "—"
+const string S7_STOP_TIP    = "OSE reference only — not a broker order."
+const string S7_ACTIVE_TIP  = "OSE is following this signal; no broker execution is implied."
+const string VP_I_WATCH   = "👀"
+const string VP_I_SIGNAL  = "❗️"
+const string VP_I_ACTIVE  = "❇️"
+const string VP_I_PASS    = "✅"
+const string VP_I_FAIL    = "❌"
+const string VP_I_TOUCH   = "⭕️"
+const string VP_I_HARD    = "🛑"
+const string VP_I_MOVED   = "🔄"
+const string VP_I_WARN    = "⚠️"
+const string VP_I_ESC     = "‼️"
+const string VP_I_WARM    = "⏳"
+const string VP_I_LOCALNA = "🚫"
+const string VP_I_BURST   = "💥"
+const string VP_I_IMP     = "⚡"
+const string VP_I_IMPX    = "⚡+"
+const string VP_NA        = "—"
+const string VP_GLOBAL_NA = "OSE ⛔"
+const int V4_EVENT_LIVE_CAP = 48
+const int V4_EVENT_ARCHIVE_CAP = 16
+const int V4_RANGE_CAP = 8
+const int V4_LEVEL_CAP = 4
+const int V4_SESSION_CAP = 3
+const int V4_WATCH_CAP = 8
+const int V4_CANDLE_CAP = 288
+
+// ---- canonical record types (verbatim; exported so Main shares identity) ----
+export type Zone
+    int   mask           = 0
+    int   anchorBit      = 0
+    int   anchorPri      = 0
+    float anchorPrice    = na
+    float lower          = na
+    float upper          = na
+    int   confluence     = 0
+    float minMemberPrice = na
+    int   priceSide      = 0
+    int   structuralRole = 0
+    int   acceptedDir    = 0
+    int   acceptBar      = na
+    int   aboveRunCount  = 0
+    int   belowRunCount  = 0
+    int   touchCount     = 0
+    bool  insideFlag     = false
+    bool  brokenLong     = false
+    bool  brokenShort    = false
+    int   retestUseLong  = 0
+    int   retestUseShort = 0
+
+export type Arm
+    int family       = 0
+    int direction    = 0
+    int zoneIdMask   = 0
+    int armBar       = na
+    int armExpiryBar = na
+    int causalOwner  = 0
+    // ---- M2 -> M4 INTERFACE EXTENSION (SAT06-A20 §4.2) ----------------------
+    // Exactly three added NON-EXPORTED arm-history fields. The real key is still
+    // exactly (family, direction, zoneIdMask) and is still unique. armBar,
+    // armExpiryBar and every history field belong to ONE WHOLE real arm donor:
+    // the R2 re-key/collision constructors below copy all nine fields from the
+    // SELECTED donor, with no union, recomputation, min/max blending, reset or
+    // field mixing. farEdgeContactSeen and worstAdvEdge are LRT-only history;
+    // squeezeReleaseOrd is bound to its own real SQZ key and is never global.
+    bool  farEdgeContactSeen = false
+    float worstAdvEdge       = na
+    int   squeezeReleaseOrd  = na
+
+export type Obs
+    // identity / context
+    int   obsId                    = na
+    int   obsBarTime               = na
+    int   obsOrd                   = na
+    int   slotIdx                  = na
+    int   obsIndexInBar            = na
+    int   family                   = 0
+    int   direction                = 0
+    int   dirCode                  = 0
+    int   classCode                = na
+    int   gapCode                  = na
+    // Risk
+    bool  riskPass                 = false
+    int   rejectReason             = 0
+    float plannedStop              = na
+    float plannedRisk              = na
+    float plannedTp1               = na
+    float signalClose              = na
+    float atrRefAtObs              = na
+    float entryDistATR             = na
+    float refLevel                 = na
+    // zone / quality
+    int   zoneIdMask               = 0
+    int   confluence               = 0
+    int   touchCount               = 0
+    int   qFlagMask                = 0
+    int   qApplicabilityMask       = 0
+    int   vwapPriceTouchCount      = 0
+    int   vwapZoneMotionTouchCount = 0
+    // flags
+    int   flagMask                 = 0
+    // context values
+    float relVol                   = na
+    float relVolCum                = na
+    float roc5                     = na
+    float atrPct                   = na
+    float atrRatio                 = na
+    float adxVal                   = na
+    float efficiencyRatio          = na
+    // M5-owned future tags — initialized once to zero, never written by M4 again
+    int   selectionStatus          = 0
+    int   arbitrationReason        = 0
+    // M6-owned future placeholders — initialized to na, never written by M4
+    float referenceRisk            = na
+    float refPrice                 = na
+    float mfeUsd1                  = na
+    float mfeUsd2                  = na
+    float mfeUsd4                  = na
+    float mfeUsd8                  = na
+    float mfeUsd12                 = na
+    float maeUsd1                  = na
+    float maeUsd2                  = na
+    float maeUsd4                  = na
+    float maeUsd8                  = na
+    float maeUsd12                 = na
+    int   forwardBarsAvailable     = na
+    // M6-owned INTERNAL queue / lifecycle state         (SAT06-A29 §3.3)
+    // These six fields are queue / lifecycle state ONLY. They are NOT part of
+    // the Frozen 38 exported record fields, are NOT new export titles and do
+    // NOT alter stable identity. ONLY §24 writes them.
+    // queueState's literal default 0 IS QUEUE_NOT_ADMITTED as declared at §24.3.
+    // The literal is used here because Pine requires a constant to be declared
+    // before its use as a field default, and the M6 vocabulary belongs with the
+    // M6 module — every other default in this type is likewise a literal.
+    // refCaptureDone is LOAD-BEARING: the first later same-session bar OWNS the
+    // reference attempt even if its rthO is na, and a later bar may NEVER
+    // silently substitute its own open as the reference.
+    int   queueState               = 0      // 0 == QUEUE_NOT_ADMITTED (§24.3)
+    int   readyAtOrd               = na
+    int   forwardBarsSeen          = 0
+    bool  refCaptureDone           = false
+    float runningMfe               = na
+    float runningMae               = na
+
+export type V4Event
+    int session
+    int candle
+    int confirmed
+    int caseId
+    int nextCaseId
+    int family
+    int direction
+    int priority
+    string title
+    string detail
+    float highPrice
+    float spacing
+    bool watchOnly
+
+export type V4Range
+    int session
+    int born
+    int until
+    int mask
+    int anchor
+    int role
+    float lower
+    float upper
+
+export type V4Level
+    int session
+    int born
+    int until
+    int kind
+    float price
+
+export type V4Candle
+    int session
+    int ordinal
+    int stamp
+    int closeStamp
+    float highPrice
+    float lowPrice
+    float vwapPrice
+    float spacing
+
+export type V4Watch
+    int session
+    int ordinal
+    int stamp
+    int family
+    int direction
+    int mask
+    float highPrice
+    float spacing
+
+export type V4Coverage
+    int session
+    int events = 0
+    int ranges = 0
+    int levels = 0
+    int droppedEvents = 0
+    int droppedRanges = 0
+    int droppedLevels = 0
+
+export type V4PriceRef
+    float price
+    int born
+    string name
+    color tone
+    int weight
+    string stroke
+    string detail
+
+// ---- Theme: the resolved presentation palette, passed as one object ----
+export type Theme
+    color VPS_A14AMB
+    color VPS_A14MUT
+    color VPS_A14RED
+    color VPS_A14REF
+    color VPS_A14SUP
+    color VPS_Q0
+    color VPS_Q4MUT
+    color VPS_Q4RED
+    color VPS_X32AMB
+    color VPS_X32MUT
+    color VPS_X32RED
+    color VPS_X32REF
+    color VPS_X32SUP
+    color VPS_X36RED
+    color s7c_amb
+    color s7c_bad
+    color s7c_card
+    color s7c_clear
+    color s7c_grid
+    color s7c_ink
+    color s7c_ink2
+    color s7c_mut
+    color s7c_ref
+    color s7c_res
+    color s7c_sup
+
+// ---- relocated functions (dependency order) ----
+export hasBit(int mask, int bit) =>
+    na(mask) or na(bit) or bit <= 0 ? false : math.floor(mask / bit) % 2 == 1
+
+// ---- private copy of vp_zoneText (same code as the Companion v2 export;
+//      kept local so OSE_CORE_LIB needs no library-to-library import) ----
+vp_zoneText(int vp_mask) =>
+    string vp_t = "—"
+    if not na(vp_mask)
+        if vp_mask == 16
+            vp_t := "VWAP"
+        else if vp_mask > 0 and vp_mask <= 15
+            // Same four members, same PDH / PDL / ORH / ORL order, same "+"
+            // join; only the four structurally identical branches are folded
+            // into one bounded pass.
+            vp_t := ""
+            array<int>    vp_zb = array.from(1, 2, 4, 8)
+            array<string> vp_zn = array.from("YDAY HIGH", "YDAY LOW", "OPEN HIGH", "OPEN LOW")
+            for vp_i = 0 to 3
+                if hasBit(vp_mask, array.get(vp_zb, vp_i))
+                    vp_t := (str.length(vp_t) > 0 ? vp_t + "+" : "") + array.get(vp_zn, vp_i)
+    vp_t
+
+anchorPriOf(int bit) =>
+    bit == BIT_PDH or bit == BIT_PDL ? 1 : 2
+
+export distToZone(float px, float lo, float hi) =>
+    na(px) or na(lo) or na(hi) ? na : px < lo ? lo - px : px > hi ? px - hi : 0.0
+
+export sideOf(float c, float lo, float hi) =>
+    na(c) or na(lo) or na(hi) ? na : c > hi ? SIDE_ABOVE : c < lo ? SIDE_BELOW : SIDE_INSIDE
+
+export roleFromSide(int side) =>
+    side == SIDE_ABOVE ? ROLE_SUPPORT : side == SIDE_BELOW ? ROLE_RESISTANCE : ROLE_NEUTRAL
+
+export roleFromDir(int dir) =>
+    dir == DIR_LONG ? ROLE_SUPPORT : dir == DIR_SHORT ? ROLE_RESISTANCE : ROLE_NEUTRAL
+
+export dirDistOf(float a, float b, int dir) =>
+    na(a) or na(b) or dir == 0 ? na : dir * (a - b)
+
+export advEdgeOf(int dir, float h, float l) =>
+    dir == DIR_LONG ? l : dir == DIR_SHORT ? h : na
+
+export favEdgeOf(int dir, float h, float l) =>
+    dir == DIR_LONG ? h : dir == DIR_SHORT ? l : na
+
+export zoneFarOf(int dir, float lo, float hi) =>
+    dir == DIR_LONG ? hi : dir == DIR_SHORT ? lo : na
+
+export zoneNearOf(int dir, float lo, float hi) =>
+    dir == DIR_LONG ? lo : dir == DIR_SHORT ? hi : na
+
+export closeLocOf(int dir, float h, float l, float c) =>
+    na(h) or na(l) or na(c) or (h - l) <= 0 or dir == 0 ? 0.0 : dir == DIR_LONG ? (c - l) / (h - l) : (h - c) / (h - l)
+
+export dirWorstStrict(float a, float b, int dir) =>
+    na(a) or na(b) or dir == 0 ? na : dir == DIR_LONG ? math.min(a, b) : math.max(a, b)
+
+export dirWorstAccum(float stored, float cur, int dir) =>
+    na(cur) ? stored : na(stored) ? cur : dir == DIR_LONG ? math.min(stored, cur) : math.max(stored, cur)
+
+export armIdxOfKey(array<Arm> st, int fam, int dir, int m) =>
+    int r = -1
+    if array.size(st) > 0
+        for i = 0 to array.size(st) - 1
+            Arm q = array.get(st, i)
+            if r == -1 and q.family == fam and q.direction == dir and q.zoneIdMask == m
+                r := i
+    r
+
+export zoneIdxOfMask(array<Zone> reg, int m) =>
+    int r = -1
+    if array.size(reg) > 0
+        for i = 0 to array.size(reg) - 1
+            if r == -1 and array.get(reg, i).mask == m
+                r := i
+    r
+
+export flagSetOf(int mask, int bit) =>
+    na(mask) or na(bit) or bit <= 0 ? mask : hasBit(mask, bit) ? mask : mask + bit
+
+export dnumFromStr(string s) =>
+    int r = na
+    if str.length(s) >= 10
+        float y = str.tonumber(str.substring(s, 0, 4))
+        float m = str.tonumber(str.substring(s, 5, 7))
+        float d = str.tonumber(str.substring(s, 8, 10))
+        if not na(y) and not na(m) and not na(d)
+            r := int(y) * 10000 + int(m) * 100 + int(d)
+    r
+
+export fillDateList(array<int> ds, array<int> us, string csv) =>
+    string clean = str.replace_all(csv, " ", "")
+    if str.length(clean) > 0
+        array<string> parts = str.split(clean, ",")
+        for i = 0 to array.size(parts) - 1
+            string p  = array.get(parts, i)
+            int    dv = dnumFromStr(p)
+            if not na(dv)
+                array.push(ds, dv)
+                array.push(us, str.contains(p, ":U") ? 1 : 0)
+    array.size(ds)
+
+export buildZones(array<float> mP, array<int> mB, float locTol, float atrF, float mergeDist, float maxWidthMult, float refC) =>
+    array<Zone> out = array.new<Zone>()
+    int n = array.size(mP)
+
+    if n > 0
+        // 1. TOTAL-ORDER SORT by (price ascending, member bit ascending).
+        //    Selection sort with an EXPLICIT comparator: correctness never
+        //    depends on any library sort's behaviour for equal prices (§5.2).
+        if n > 1
+            for i = 0 to n - 2
+                int best = i
+                for j = i + 1 to n - 1
+                    float pj = array.get(mP, j)
+                    float pb = array.get(mP, best)
+                    if pj < pb or (pj == pb and array.get(mB, j) < array.get(mB, best))
+                        best := j
+                if best != i
+                    float tp = array.get(mP, i)
+                    int   tb = array.get(mB, i)
+                    array.set(mP, i, array.get(mP, best))
+                    array.set(mB, i, array.get(mB, best))
+                    array.set(mP, best, tp)
+                    array.set(mB, best, tb)
+
+        // 2. CLUSTERING. Admission compares each later member with the CLUSTER
+        //    MINIMUM — the first member of the open cluster, which is the lowest
+        //    because the array is sorted — and never with the last admitted
+        //    member. That is exactly what forbids chained merging (§5.4).
+        //    Clusters are contiguous index ranges over the sorted array.
+        array<int> rLo = array.new_int()
+        array<int> rHi = array.new_int()
+        int cs = 0
+        if n > 1
+            for i = 1 to n - 1
+                if array.get(mP, i) - array.get(mP, cs) > mergeDist
+                    array.push(rLo, cs)
+                    array.push(rHi, i - 1)
+                    cs := i
+        array.push(rLo, cs)
+        array.push(rHi, n - 1)
+
+        // 3. EXPANDED-WIDTH SPLITTING. Bounded worklist, as A15 §5 authorizes.
+        //    With at most four members a cluster needs at most THREE actual
+        //    splits to reach singletons, so three passes are structurally
+        //    sufficient — this is a structural bound derived from the member
+        //    count, not a truncation. Each pass splits the FIRST failing range
+        //    in ascending order. Splitting a range depends only on that range,
+        //    so the processing order cannot change the final partition: the
+        //    result equals the recursive rule's partition exactly. This is NOT
+        //    a single-level split — a child produced by a split is retested and
+        //    can itself be split on a later pass.
+        float maxW = maxWidthMult * atrF
+        for pass = 0 to 2
+            int target = -1
+            for k = 0 to array.size(rLo) - 1
+                if target == -1
+                    int lo = array.get(rLo, k)
+                    int hi = array.get(rHi, k)
+                    if hi > lo                         // singleton children are terminal
+                        float w = (array.get(mP, hi) + locTol) - (array.get(mP, lo) - locTol)
+                        if w > maxW                    // STRICT predicate (§5.8)
+                            target := k
+            if target >= 0
+                int lo = array.get(rLo, target)
+                int hi = array.get(rHi, target)
+                int   gAt   = lo
+                float gBest = -1.0
+                for g = lo to hi - 1
+                    float gap = array.get(mP, g + 1) - array.get(mP, g)
+                    if gap > gBest        // STRICT: on an exact tie the LOWEST-price
+                        gBest := gap      // (leftmost) gap is retained (§5.10)
+                        gAt   := g
+                array.set(rHi, target, gAt)
+                array.insert(rLo, target + 1, gAt + 1)
+                array.insert(rHi, target + 1, hi)
+
+        // 4. EMIT. Mask, anchor, bounds and confluence are recomputed
+        //    INDEPENDENTLY for every final child (§5.11).
+        for k = 0 to array.size(rLo) - 1
+            int lo = array.get(rLo, k)
+            int hi = array.get(rHi, k)
+            int   m      = 0
+            int   aBit   = 0
+            int   aPri   = 0
+            float aPrice = na
+            for t = lo to hi
+                int   b = array.get(mB, t)
+                float p = array.get(mP, t)
+                m += b                        // distinct bits => sum == bitwise OR
+                int   pr = anchorPriOf(b)
+                float d  = math.abs(p - refC)
+                bool better = aBit == 0
+                if not better
+                    float dCur = math.abs(aPrice - refC)
+                    better := pr < aPri or (pr == aPri and d < dCur) or (pr == aPri and d == dCur and b < aBit)
+                if better
+                    aBit   := b
+                    aPri   := pr
+                    aPrice := p
+            array.push(out, Zone.new(mask = m, anchorBit = aBit, anchorPri = aPri, anchorPrice = aPrice, lower = array.get(mP, lo) - locTol, upper = array.get(mP, hi) + locTol, confluence = hi - lo + 1, minMemberPrice = array.get(mP, lo)))
+
+    // 5. DETERMINISTIC EVIDENCE ORDER: (minimum member price ascending,
+    //    zoneIdMask ascending). Storage order owns no semantics; active-zone
+    //    selection is governed only by §15.7.
+    int nz = array.size(out)
+    if nz > 1
+        for i = 0 to nz - 2
+            int best = i
+            for j = i + 1 to nz - 1
+                Zone zj = array.get(out, j)
+                Zone zb = array.get(out, best)
+                if zj.minMemberPrice < zb.minMemberPrice or (zj.minMemberPrice == zb.minMemberPrice and zj.mask < zb.mask)
+                    best := j
+            if best != i
+                Zone tmp = array.get(out, i)
+                array.set(out, i, array.get(out, best))
+                array.set(out, best, tmp)
+    out
+
+export s7_famText(int s7_family) =>
+    s7_family == FAM_VWR ? "VWR" : s7_family == FAM_LBO ? "LBO" : s7_family == FAM_LRT ? "LRT" : s7_family == FAM_SQZ ? "SQZ" : S7_NA
+
+export s7_dirText(int s7_dir) =>
+    s7_dir == DIR_LONG ? "LONG" : s7_dir == DIR_SHORT ? "SHORT" : s7_dir == DIR_NEUTRAL ? "NEUTRAL" : S7_NA
+
+export s7_priceText(float s7_v) =>
+    na(s7_v) ? S7_NA : str.tostring(s7_v, format.mintick)
+
+s7_numText(float s7_v, string s7_fmt) =>
+    na(s7_v) ? S7_NA : str.tostring(s7_v, s7_fmt)
+
+export s7_hhmm(int s7_ms) =>
+    na(s7_ms) ? S7_NA : str.format_time(s7_ms, "HH:mm", TZ)
+
+export s7_rejectText(int s7_rj) =>
+    s7_rj == RJ_R4 ? "R4 SESSION BLOCKED" : s7_rj == RJ_R5 ? "R5 EVENT DAY BLOCK" : s7_rj == RJ_R6 ? "R6 TOO LATE" : s7_rj == RJ_R7 ? "R7 RISK TOO WIDE" : s7_rj == RJ_R8 ? "R8 RISK TOO TIGHT" : s7_rj == RJ_R9 ? "R9 NO ROOM" : s7_rj == RJ_R10 ? "R10 STOP UNDEFINED" : s7_rj == RJ_R12 ? "R12 STOP TECHNICALLY TOO CLOSE" : s7_rj == RJ_R13 ? "R13 RVOL NOT READY" : S7_NA
+
+s7_deltaText(float s7_then, float s7_now, string s7_fmt, string s7_suffix) =>
+    string s7_d = S7_NA
+    if (not na(s7_then)) and (not na(s7_now))
+        float s7_v = s7_now - s7_then
+        s7_d := (s7_v > 0 ? "+" : "") + str.tostring(s7_v, s7_fmt) + s7_suffix
+    s7_d
+
+s7_slopeText(int s7_state) =>
+    s7_state == DIR_LONG ? "RISING" : s7_state == DIR_SHORT ? "FALLING" : s7_state == DIR_NEUTRAL ? "FLAT" : S7_NA
+
+s7_ratioText(float s7_v) =>
+    na(s7_v) ? S7_NA : str.tostring(s7_v, "0.00") + "x"
+
+export vp_dir(int vp_d) =>
+    vp_d == DIR_LONG ? "CALL" : vp_d == DIR_SHORT ? "PUT" : vp_d == DIR_NEUTRAL ? "NEUTRAL" : VP_NA
+
+export vp_fam(int vp_f) =>
+    vp_f == FAM_VWR ? "VWAP RECLAIM" : vp_f == FAM_LBO ? "BREAKOUT" : vp_f == FAM_LRT ? "RETEST" : vp_f == FAM_SQZ ? "SQZ" : VP_NA
+
+vp_entry(int vp_classCode) =>
+    int vp_e = na(vp_classCode) ? na : int(math.floor(vp_classCode / 10.0)) % 10
+    vp_e == EFF_EARLY ? "EARLY" : vp_e == EFF_CONFIRMED ? "READY" : vp_e == EFF_EXTENDED ? "EXTENDED" : vp_e == EFF_TOO_LATE ? "TOO LATE" : VP_NA
+
+export vp_riskReason(int vp_rj) =>
+    vp_rj == RJ_R4 ? "SESSION BLOCKED" : vp_rj == RJ_R5 ? "EVENT DAY BLOCK" : vp_rj == RJ_R6 ? "TOO LATE" : vp_rj == RJ_R7 ? "RISK TOO WIDE" : vp_rj == RJ_R8 ? "RISK TOO TIGHT" : vp_rj == RJ_R9 ? "NO ROOM" : vp_rj == RJ_R10 ? "STOP UNDEFINED" : vp_rj == RJ_R12 ? "STOP TOO CLOSE" : vp_rj == RJ_R13 ? "RVOL NOT READY" : VP_NA
+
+export vp_roleToken(int vp_role) =>
+    vp_role == ROLE_SUPPORT ? " · S" : vp_role == ROLE_RESISTANCE ? " · R" : ""
+
+export vp_refName(int vp_bit) =>
+    vp_bit == BIT_PDH ? "YDAY HIGH" : vp_bit == BIT_PDL ? "YDAY LOW" : vp_bit == BIT_ORH ? "OPEN HIGH" : vp_bit == BIT_ORL ? "OPEN LOW" : VP_NA
+
+export vp_mix(color vp_base, color vp_tint, float vp_pct) =>
+    color.rgb(color.r(vp_base) + (color.r(vp_tint) - color.r(vp_base)) * vp_pct,
+      color.g(vp_base) + (color.g(vp_tint) - color.g(vp_base)) * vp_pct,
+      color.b(vp_base) + (color.b(vp_tint) - color.b(vp_base)) * vp_pct, 0)
+
+vp_a14Of(color vp_t, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color VPS_A14AMB = TH.VPS_A14AMB
+    color VPS_A14MUT = TH.VPS_A14MUT
+    color VPS_A14RED = TH.VPS_A14RED
+    color VPS_A14REF = TH.VPS_A14REF
+    color VPS_A14SUP = TH.VPS_A14SUP
+    color s7c_amb = TH.s7c_amb
+    color s7c_ref = TH.s7c_ref
+    color s7c_res = TH.s7c_res
+    color s7c_sup = TH.s7c_sup
+    vp_t == s7c_ref ? VPS_A14REF : vp_t == s7c_amb ? VPS_A14AMB : vp_t == s7c_sup ? VPS_A14SUP : vp_t == s7c_res ? VPS_A14RED : VPS_A14MUT
+
+vp_dirTint(int vp_d, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color s7c_mut = TH.s7c_mut
+    color s7c_res = TH.s7c_res
+    color s7c_sup = TH.s7c_sup
+    vp_d == DIR_LONG ? s7c_sup : vp_d == DIR_SHORT ? s7c_res : s7c_mut
+
+vp_adxTint(float vp_v, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color s7c_amb = TH.s7c_amb
+    color s7c_ink = TH.s7c_ink
+    color s7c_mut = TH.s7c_mut
+    color s7c_ref = TH.s7c_ref
+    na(vp_v) ? s7c_mut : vp_v < 20 ? s7c_amb : vp_v < 25 ? s7c_ink : s7c_ref
+
+vp_adxBg(float vp_v, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color VPS_A14AMB = TH.VPS_A14AMB
+    color VPS_A14REF = TH.VPS_A14REF
+    color VPS_Q0 = TH.VPS_Q0
+    color VPS_Q4MUT = TH.VPS_Q4MUT
+    color VPS_X32REF = TH.VPS_X32REF
+    na(vp_v) ? VPS_Q4MUT : vp_v < 20 ? VPS_A14AMB : vp_v < 25 ? VPS_Q0 : vp_v < 40 ? VPS_A14REF : VPS_X32REF
+
+vp_c19Tint(float vp_v, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color s7c_ink = TH.s7c_ink
+    color s7c_mut = TH.s7c_mut
+    color s7c_res = TH.s7c_res
+    color s7c_sup = TH.s7c_sup
+    na(vp_v) ? s7c_mut : vp_v < 0.75 ? s7c_res : vp_v < 1.25 ? s7c_ink : s7c_sup
+
+vp_c19Bg(float vp_v, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color VPS_A14RED = TH.VPS_A14RED
+    color VPS_A14SUP = TH.VPS_A14SUP
+    color VPS_Q0 = TH.VPS_Q0
+    color VPS_Q4MUT = TH.VPS_Q4MUT
+    color VPS_X32SUP = TH.VPS_X32SUP
+    na(vp_v) ? VPS_Q4MUT : vp_v < 0.75 ? VPS_A14RED : vp_v < 1.25 ? VPS_Q0 : vp_v < 2.00 ? VPS_A14SUP : VPS_X32SUP
+
+vp_c60Tint(float vp_v, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color s7c_ink2 = TH.s7c_ink2
+    color s7c_mut = TH.s7c_mut
+    color s7c_res = TH.s7c_res
+    color s7c_sup = TH.s7c_sup
+    na(vp_v) ? s7c_mut : vp_v < 0.75 ? s7c_res : vp_v < 1.25 ? s7c_ink2 : s7c_sup
+
+vp_c60Bg(float vp_v, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color VPS_A14RED = TH.VPS_A14RED
+    color VPS_A14SUP = TH.VPS_A14SUP
+    color VPS_Q0 = TH.VPS_Q0
+    color VPS_Q4MUT = TH.VPS_Q4MUT
+    color VPS_X32SUP = TH.VPS_X32SUP
+    na(vp_v) ? VPS_Q4MUT : vp_v < 0.75 ? VPS_A14RED : vp_v < 1.25 ? VPS_Q0 : vp_v < 2.00 ? VPS_A14SUP : VPS_X32SUP
+
+vp_atrTint(float vp_v, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color s7c_amb = TH.s7c_amb
+    color s7c_ink = TH.s7c_ink
+    color s7c_ref = TH.s7c_ref
+    na(vp_v) ? s7c_ink : vp_v < 0.75 ? s7c_amb : vp_v < 1.25 ? s7c_ink : s7c_ref
+
+vp_atrBg(float vp_v, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color VPS_A14AMB = TH.VPS_A14AMB
+    color VPS_A14REF = TH.VPS_A14REF
+    color VPS_Q0 = TH.VPS_Q0
+    color VPS_X32REF = TH.VPS_X32REF
+    na(vp_v) ? VPS_Q0 : vp_v < 0.75 ? VPS_A14AMB : vp_v < 1.25 ? VPS_Q0 : vp_v < 1.75 ? VPS_A14REF : VPS_X32REF
+
+vp_erTint(float vp_v, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color s7c_amb = TH.s7c_amb
+    color s7c_ink = TH.s7c_ink
+    color s7c_mut = TH.s7c_mut
+    color s7c_ref = TH.s7c_ref
+    na(vp_v) ? s7c_mut : vp_v < 0.25 ? s7c_amb : vp_v < 0.55 ? s7c_ink : s7c_ref
+
+vp_erBg(float vp_v, Theme TH) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color VPS_A14AMB = TH.VPS_A14AMB
+    color VPS_A14REF = TH.VPS_A14REF
+    color VPS_Q0 = TH.VPS_Q0
+    color VPS_Q4MUT = TH.VPS_Q4MUT
+    color VPS_X32REF = TH.VPS_X32REF
+    na(vp_v) ? VPS_Q4MUT : vp_v < 0.25 ? VPS_A14AMB : vp_v < 0.55 ? VPS_Q0 : vp_v < 0.75 ? VPS_A14REF : VPS_X32REF
+
+v4_panelCell(table t, int col, int row, int span, string value, color ink, color background, bool heading, int v4_font) =>
+    if span > 1
+        table.merge_cells(t, col, row, col + span - 1, row)
+    table.cell_set_text(t, col, row, value)
+    table.cell_set_text_color(t, col, row, ink)
+    table.cell_set_bgcolor(t, col, row, background)
+    // Tooltips are non-authoritative presentation metadata and are intentionally
+    // omitted in this resource-reduction child; all governed facts remain visible.
+    if heading
+        table.cell_set_text_size(t, col, row, v4_font + 1)
+
+opt_cell(table t, int col, int row, string value, color ink, color background, float width, int v4_font) =>
+    table.cell(t, col, row, value, width = width, text_color = ink, bgcolor = background, text_size = v4_font, text_halign = text.align_center)
+
+v4_eventSummary(string value) =>
+    str.replace_all(array.get(str.split(value, " · "), 0), " — case active", "")
+
+export v4_matrix(table t, int col, int row, int span, bool overlay, array<string> texts, array<color> inks, array<color> backgrounds, Theme TH, int v4_font, bool v4_hasObs, Obs v4_obs, color v4_sectionHead, string v4_signalOverlay, string v4_snapshotLabel) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color s7c_amb = TH.s7c_amb
+    color s7c_card = TH.s7c_card
+    color s7c_ink2 = TH.s7c_ink2
+    int w1 = span == 4 ? 1 : 4
+    int w2 = span == 4 ? 1 : 3
+    array<int> widths = array.from(w1, w2, w2, span - w1 - 2 * w2)
+    array<int> offsets = array.from(0, w1, w1 + w2, w1 + 2 * w2)
+    array<string> heads = overlay ? array.from("SIGNAL", "AT", "Δ", "NOW") : array.from("SIGNAL", "AT SIGNAL", "CHANGE", "NOW")
+    array<string> shortNames = array.from("ROC5", "RVOL", "ADX", "RSI", "STOP")
+    bool ghost = overlay and v4_signalOverlay == "GHOST"
+    string ident = v4_snapshotLabel + (v4_hasObs ? " · #" + str.tostring(v4_obs.obsId) + " · " + vp_dir(v4_obs.direction) + " · " + vp_fam(v4_obs.family) : "")
+    for c = 0 to 3
+        int x = col + array.get(offsets, c)
+        v4_panelCell(t, x, row, array.get(widths, c), array.get(heads, c), ghost ? color.new(s7c_ink2, 25) : s7c_ink2, overlay ? color.new(s7c_amb, ghost ? 94 : 84) : v4_sectionHead, false, v4_font)
+        table.cell_set_tooltip(t, x, row, ident)
+        for r = 0 to 4
+            int n = r * 4 + c
+            string value = overlay and c == 0 ? array.get(shortNames, r) : array.get(texts, n)
+            color ink = array.get(inks, n)
+            color bg = array.get(backgrounds, n)
+            v4_panelCell(t, x, row + 1 + r, array.get(widths, c), value, ghost ? color.new(ink, 25) : ink, overlay ? color.new(s7c_card, ghost ? 96 : 12) : bg, false, v4_font)
+            if overlay and c == 0
+                table.cell_set_tooltip(t, x, row + 1 + r, array.get(texts, n) + " · " + ident)
+
+export v4_matrixTruth(Theme TH, float rf1_outRsi, float rf1_outRsiAtSignal, bool rf1_outSignalCaptured, bool s7_caseActive, int s7_caseId, float s7_trailStop, int s7_trailVersion, bool v4_hasObs, bool v4_matrixLive, Obs v4_obs) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color VPS_A14AMB = TH.VPS_A14AMB
+    color VPS_A14RED = TH.VPS_A14RED
+    color VPS_A14REF = TH.VPS_A14REF
+    color VPS_A14SUP = TH.VPS_A14SUP
+    color VPS_Q0 = TH.VPS_Q0
+    color VPS_Q4MUT = TH.VPS_Q4MUT
+    color VPS_Q4RED = TH.VPS_Q4RED
+    color VPS_X32REF = TH.VPS_X32REF
+    color VPS_X32SUP = TH.VPS_X32SUP
+    color s7c_amb = TH.s7c_amb
+    color s7c_bad = TH.s7c_bad
+    color s7c_card = TH.s7c_card
+    color s7c_ink = TH.s7c_ink
+    color s7c_ink2 = TH.s7c_ink2
+    color s7c_mut = TH.s7c_mut
+    color s7c_ref = TH.s7c_ref
+    color s7c_res = TH.s7c_res
+    color s7c_sup = TH.s7c_sup
+    array<string> texts = array.new_string()
+    array<color> inks = array.new_color()
+    array<color> backgrounds = array.new_color()
+    bool live = v4_matrixLive
+    // 5 STOP REFERENCE — AT SIGNAL is the immutable original STOP and keeps its
+    // red STOP identity; CHANGE is a signed price distance, NOT profit or loss.
+    bool  sameCase  = s7_caseActive and v4_hasObs and (not na(s7_caseId)) and v4_obs.obsId == s7_caseId
+    float stopNow   = sameCase ? s7_trailStop : na
+    bool  stopMoved = sameCase and s7_trailVersion > 0
+
+    // The five approved rows, described as data. Row order, units, anchor
+    // immutability and per-column colour ownership are exactly as before; only
+    // the repeated render branch is consolidated.
+    //   1 ROC5 — the NOW cell keeps a restrained signed TEXT identity. No live
+    //     momentum-support producer exists, so no A / X state and no raw ROC5
+    //     threshold is attached to it.
+    //   2 RVOL · 5m SLOT — always C19. C60 is never substituted here.
+    //   4 RSI — the row EXISTS NOW. No RSI producer and no same-case RSI anchor
+    //     snapshot exist, so all three columns read —. Nothing is calculated
+    //     here and no current RSI is ever attached to an old case.
+    array<string> vp_rN = array.from("ROC5", "RVOL · 5m SLOT", "ADX", "RSI", "STOP REFERENCE")
+    array<float>  vp_rO = array.from(v4_hasObs ? v4_obs.roc5 : na, v4_hasObs ? v4_obs.relVol : na, v4_hasObs ? v4_obs.adxVal : na, rf1_outRsiAtSignal, v4_hasObs ? v4_obs.plannedStop : na)
+    array<float>  vp_rC = array.from(roc5, relVol, adxVal, rf1_outRsi, stopNow)
+    array<string> vp_rF = array.from("0.0000", "0.00", "0.00", "0.0", format.mintick)
+    array<string> vp_rS = array.from("%", "x", "", "", "")
+    array<string> vp_rU = array.from(" pp", "x", "", " pts", "")
+    array<bool>   vp_rL = array.from(live, live, live, live and rf1_outSignalCaptured, sameCase)
+    array<color>  vp_rNm = array.from(s7c_ink2, s7c_ink2, s7c_ink2, s7c_ink2, s7c_bad)
+    array<color>  vp_rOi = array.from(s7c_ink2, s7c_ink2, s7c_ink2, s7c_ink2, s7c_bad)
+    array<color>  vp_rOb = array.from(VPS_Q4MUT, VPS_Q4MUT, VPS_Q4MUT, VPS_Q4MUT, VPS_Q4RED)
+    array<color>  vp_rNi = array.from(na(roc5) ? s7c_mut : roc5 > 0 ? s7c_sup : roc5 < 0 ? s7c_res : s7c_ink, vp_c19Tint(relVol, TH), vp_adxTint(adxVal, TH), s7c_mut, stopMoved ? s7c_ref : s7c_bad)
+    array<color>  vp_rNo = array.from(s7c_mut, s7c_mut, s7c_mut, s7c_mut, s7c_bad)
+    array<color>  vp_rNb = array.from(VPS_Q0, vp_c19Bg(relVol, TH), vp_adxBg(adxVal, TH), VPS_Q4MUT, stopMoved ? VPS_A14REF : VPS_Q0)
+    for vp_r = 0 to 4
+        string vp_f  = array.get(vp_rF, vp_r)
+        float  vp_o  = array.get(vp_rO, vp_r)
+        float  vp_n  = array.get(vp_rC, vp_r)
+        bool   vp_lv = array.get(vp_rL, vp_r)
+        // `live` is the accepted next-confirmed-bar gate: on the elected
+        // opportunity's own anchor bar CHANGE and NOW stay unavailable, because
+        // no later bar exists yet (A49 / C-03 §3.3-3.5). Neither column ever
+        // writes back to the frozen anchor.
+        array<string> vp_cT = array.from(array.get(vp_rN, vp_r),
+          na(vp_o) ? VP_NA : str.tostring(vp_o, vp_f) + array.get(vp_rS, vp_r),
+          vp_lv ? s7_deltaText(vp_o, vp_n, vp_f, array.get(vp_rU, vp_r)) : VP_NA,
+          vp_lv ? (na(vp_n) ? VP_NA : str.tostring(vp_n, vp_f) + array.get(vp_rS, vp_r)) : VP_NA)
+        array<color> vp_cI = array.from(array.get(vp_rNm, vp_r), array.get(vp_rOi, vp_r), s7c_ink2,
+          vp_lv ? array.get(vp_rNi, vp_r) : array.get(vp_rNo, vp_r))
+        array<color> vp_cB = array.from(s7c_card, array.get(vp_rOb, vp_r), VPS_Q0,
+          vp_lv ? array.get(vp_rNb, vp_r) : VPS_Q4MUT)
+        for vp_c = 0 to 3
+            array.push(texts, array.get(vp_cT, vp_c))
+            array.push(inks, array.get(vp_cI, vp_c))
+            array.push(backgrounds, array.get(vp_cB, vp_c))
+    [texts, inks, backgrounds]
+
+export v4_liveBand(table t, int row, Theme TH, bool actualRthBar, float atrLive, float atrPctVal, float atrRatioVal, int impulseDirState, bool impulseExcessiveState, float rf1_outDelta, string rf1_outDeltaClassification, string rf1_outDeltaCoverage, float rf1_outDeltaNegative, float rf1_outDeltaPositive, string rf1_outDeltaReconciliation, float rf1_outDeltaUnclassified, float rf1_outDiMinus, float rf1_outDiPlus, float rf1_outMacdHistogram, float rf1_outMacdLine, float rf1_outMacdSignal, string rf1_outPhase, float rf1_outPoc, string rf1_outProfileParentQuality, float rf1_outRsi, float rf1_outSessionCvd, string rf1_outSessionDeltaQuality, float rf1_outVah, float rf1_outVal, int s7_candDir, bool s7_candLive, bool s7_caseActive, int s7_caseDir, bool s7_coreReady, bool s7_impulseOn, string s7_revEvtText, bool s7_warnActive, int structBias, int v4_font, float vwap, float vwapSlopeRaw, int vwapSlopeState) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color VPS_A14AMB = TH.VPS_A14AMB
+    color VPS_A14MUT = TH.VPS_A14MUT
+    color VPS_A14RED = TH.VPS_A14RED
+    color VPS_A14REF = TH.VPS_A14REF
+    color VPS_A14SUP = TH.VPS_A14SUP
+    color VPS_Q0 = TH.VPS_Q0
+    color VPS_Q4MUT = TH.VPS_Q4MUT
+    color VPS_X32AMB = TH.VPS_X32AMB
+    color VPS_X32MUT = TH.VPS_X32MUT
+    color VPS_X32RED = TH.VPS_X32RED
+    color VPS_X32REF = TH.VPS_X32REF
+    color VPS_X32SUP = TH.VPS_X32SUP
+    color VPS_X36RED = TH.VPS_X36RED
+    color s7c_amb = TH.s7c_amb
+    color s7c_bad = TH.s7c_bad
+    color s7c_ink = TH.s7c_ink
+    color s7c_ink2 = TH.s7c_ink2
+    color s7c_mut = TH.s7c_mut
+    color s7c_ref = TH.s7c_ref
+    color s7c_res = TH.s7c_res
+    color s7c_sup = TH.s7c_sup
+    // Ten conceptual cells stay in the approved order. Only RVOL keeps a
+    // two-part internal split so C19 and C60 retain independent P-02/P-03
+    // salience. ADX/+DI/-DI and ATR/ATR%/RATIO are compacted inside their
+    // owning conceptual cells; no information or producer is removed.
+    float vp_rsiNow = rf1_outRsi
+
+    string vp_vwapV = "VWAP\n" + s7_priceText(vwap) + "\n" + s7_slopeText(vwapSlopeState) + " " + s7_numText(vwapSlopeRaw, "0.000")
+    color vp_vwapTnt = s7c_ink
+    color vp_vwapBg = VPS_Q0
+    if s7_caseActive and not na(vwapSlopeState)
+        bool vp_vsup = vwapSlopeState == s7_caseDir
+        vp_vwapV := "VWAP " + (vp_vsup ? VP_I_PASS : VP_I_FAIL) + "\n" + s7_priceText(vwap) + "\n" + s7_slopeText(vwapSlopeState) + " " + s7_numText(vwapSlopeRaw, "0.000")
+        vp_vwapTnt := vp_vsup ? s7c_sup : s7c_amb
+        vp_vwapBg := vp_vsup ? VPS_A14SUP : VPS_A14AMB
+
+    color vp_atrTn = vp_atrTint(atrRatioVal, TH)
+    color vp_atrBk = vp_atrBg(atrRatioVal, TH)
+
+    string vp_impV = "OFF"
+    color vp_impTnt = s7c_mut
+    color vp_impBg = VPS_Q0
+    if not s7_coreReady
+        vp_impV := not actualRthBar ? VP_I_LOCALNA : VP_I_WARM
+        vp_impBg := VPS_Q4MUT
+    else if s7_impulseOn
+        bool vp_impUp = impulseDirState == DIR_LONG
+        bool vp_impDn = impulseDirState == DIR_SHORT
+        vp_impV := (impulseExcessiveState ? "IMP+" : "IMP") + (vp_impUp ? " ↑" : vp_impDn ? " ↓" : "")
+        vp_impTnt := vp_impUp ? s7c_sup : vp_impDn ? s7c_res : s7c_mut
+        vp_impBg := impulseExcessiveState ? (vp_impUp ? VPS_X32SUP : vp_impDn ? VPS_X32RED : VPS_X32MUT) : (vp_impUp ? VPS_A14SUP : vp_impDn ? VPS_A14RED : VPS_A14MUT)
+        if s7_caseActive and impulseDirState != DIR_NEUTRAL and impulseDirState == -s7_caseDir
+            vp_impV += "\n" + VP_I_WARN + " AGAINST CASE"
+            vp_impTnt := s7c_amb
+
+    string vp_daV = VP_NA
+    color vp_daTnt = s7c_mut
+    color vp_daBg = VPS_Q0
+    if str.length(s7_revEvtText) > 0
+        vp_daV := VP_I_HARD + " " + VP_I_WARN + " " + vp_dir(s7_caseActive ? s7_caseDir : structBias)
+        vp_daTnt := s7c_bad
+        vp_daBg := VPS_X36RED
+    else if s7_caseActive and s7_candLive
+        vp_daV := VP_I_WARN + VP_I_ESC + " REVERSAL WATCH\n" + vp_dir(s7_candDir)
+        vp_daTnt := s7c_amb
+        vp_daBg := VPS_X32AMB
+    else if s7_caseActive and s7_warnActive
+        vp_daV := "AGAINST CASE"
+        vp_daTnt := s7c_amb
+        vp_daBg := VPS_A14AMB
+    else if s7_caseActive
+        vp_daV := "WITH CASE"
+        vp_daTnt := s7c_ink2
+
+    // Ten conceptual cells occupy the full width. RVOL alone has two actual
+    // columns at 2:1 width so NOW and SESSION stay independently colored.
+    array<string> vp_v = array.from(
+      "RSI\n" + s7_numText(vp_rsiNow, "0.0") + "\n30 / 70",
+      "MACD HIST\n" + s7_numText(rf1_outMacdHistogram, "0.000") + "\nMACD " + s7_numText(rf1_outMacdLine, "0.000") + " · SIG " + s7_numText(rf1_outMacdSignal, "0.000"),
+      "ADX\n" + s7_numText(adxVal, "0.0") + "\n+DI " + s7_numText(rf1_outDiPlus, "0.0") + " · -DI " + s7_numText(rf1_outDiMinus, "0.0"),
+      "RVOL NOW\n" + s7_ratioText(relVol) + "\nRVOL " + VP_NA,
+      "SESSION\n" + s7_ratioText(relVolCum),
+      "VOLUME DELTA\n" + s7_numText(rf1_outDelta, format.volume) + "\nEST. " + (rf1_outDeltaCoverage == "COMPLETE" and rf1_outDeltaReconciliation == "MATCH" ? (rf1_outDeltaClassification == "CLASSIFIED" ? "" : "UNCLASS.") : "PARTIAL / NA"),
+      vp_vwapV,
+      "VOLUME\nPROFILE EST.\nPOC " + s7_priceText(rf1_outPoc) + " · VAH " + s7_priceText(rf1_outVah) + "\nVAL " + s7_priceText(rf1_outVal),
+      "ATR\n" + s7_numText(atrLive, format.mintick) + "\nATR% " + s7_numText(atrPctVal, "0.00") + "%\nRATIO " + s7_numText(atrRatioVal, "0.00"),
+      "IMPULSE\n" + vp_impV,
+      "DIRECTION\nALERT\n" + vp_daV + "\n" + s7_hhmm(time_close))
+    array<color> vp_i = array.from(s7c_mut, s7c_mut, vp_adxTint(adxVal, TH), vp_c19Tint(relVol, TH), vp_c60Tint(relVolCum, TH), s7c_mut, vp_vwapTnt, s7c_mut, vp_atrTn, vp_impTnt, vp_daTnt)
+    array<color> vp_b = array.from(VPS_Q4MUT, VPS_Q4MUT, vp_adxBg(adxVal, TH), vp_c19Bg(relVol, TH), vp_c60Bg(relVolCum, TH), VPS_Q4MUT, vp_vwapBg, VPS_Q4MUT, vp_atrBk, vp_impBg, vp_daBg)
+    for vp_n = 0 to 10
+        v4_panelCell(t, vp_n, row, 1, array.get(vp_v, vp_n), array.get(vp_i, vp_n), array.get(vp_b, vp_n), false, v4_font)
+    table.cell_set_tooltip(t, 5, row, "Estimated price-direction delta (1m). " + rf1_outPhase + "\nCoverage: " + rf1_outDeltaCoverage + " / reconciliation: " + rf1_outDeltaReconciliation + "\nPositive: " + s7_numText(rf1_outDeltaPositive, format.volume) + " / negative: " + s7_numText(rf1_outDeltaNegative, format.volume) + " / unclassified: " + s7_numText(rf1_outDeltaUnclassified, format.volume) + "\nSession CVD: " + s7_numText(rf1_outSessionCvd, format.volume) + " / " + rf1_outSessionDeltaQuality)
+    table.cell_set_tooltip(t, 7, row, "Estimated OHLCV profile. Parent quality: " + rf1_outProfileParentQuality + ". Session completeness is not certified by R1.\nHistogram: committed session, at most 120 display groups; orange = POC, blue = value area. Levels use original bins. Requires 11 eligible calibration sessions.")
+
+export v4_workspace(table t, Theme TH, bool commonSetupReady, float orHigh, float orLow, bool orReady, float pdh, float pdl, float s7_barrier, int s7_candFamily, bool s7_candLive, int s7_candObsId, int s7_candTime, bool s7_caseActive, string s7_caseEndReason, bool s7_caseEndedFlag, int s7_caseId, float s7_caseInitialStop, float s7_caseTp1, array<string> s7_evtText, int s7_premiseMask, bool s7_premiseTrace, float s7_room, bool s7_tp1Reached, string s7_trailReason, float s7_trailStop, bool s7_trailUnlocked, int s7_trailVersion, bool sqzCoreReady, bool staticCoreReady, int v4_barrierRole, string v4_cMode, array<V4Coverage> v4_coverage, array<V4Event> v4_events, int v4_font, bool v4_hasObs, Obs v4_obs, string v4_reviewHorizon, color v4_sectionHead, string vp_zoneBounds, string vp_zoneName, int vp_zoneRole) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color VPS_A14AMB = TH.VPS_A14AMB
+    color VPS_A14REF = TH.VPS_A14REF
+    color VPS_Q0 = TH.VPS_Q0
+    color VPS_Q4MUT = TH.VPS_Q4MUT
+    color VPS_X32REF = TH.VPS_X32REF
+    color s7c_amb = TH.s7c_amb
+    color s7c_bad = TH.s7c_bad
+    color s7c_ink = TH.s7c_ink
+    color s7c_ink2 = TH.s7c_ink2
+    color s7c_mut = TH.s7c_mut
+    color s7c_ref = TH.s7c_ref
+    bool review = v4_cMode == "REVIEW"
+    bool ownsCase = v4_hasObs and not na(s7_caseId) and v4_obs.obsId == s7_caseId
+    string phase = ownsCase ? (s7_tp1Reached ? "AFTER TP1" : "BEFORE TP1") : VP_NA
+    array<string> labels = array.new_string()
+    array<string> values = array.new_string()
+    array<string> historyTips = array.new_string(5, "")
+    if review
+        string ended = ownsCase and s7_caseEndedFlag ? (s7_caseEndReason == "MGMT_INV_BREACH" ? "STOP BREAK" : s7_caseEndReason == "REVERSAL_CONFIRMED" ? "REVERSAL CONFIRMED" : s7_caseEndReason == "SESSION_TERMINAL" ? "SESSION END" : VP_NA) : VP_NA
+        labels := array.from("CASE / TIME", "FAMILY / SIDE", "SIGNAL / REF", "PLAN / REF RISK", "ENDED / PHASE", "", "", "", "", "", "MFE / MAE · @" + v4_reviewHorizon, "EFFICIENCY · AT / NOW", "ENTRY · ATR", "ATR% / RATIO · AT", "FORWARD · SEEN / AVAILABLE")
+        array<float> mfes = v4_hasObs ? array.from(v4_obs.mfeUsd1, v4_obs.mfeUsd2, v4_obs.mfeUsd4, v4_obs.mfeUsd8, v4_obs.mfeUsd12) : array.new_float(5, na)
+        array<float> maes = v4_hasObs ? array.from(v4_obs.maeUsd1, v4_obs.maeUsd2, v4_obs.maeUsd4, v4_obs.maeUsd8, v4_obs.maeUsd12) : array.new_float(5, na)
+        int horizon = v4_reviewHorizon == "1" ? 0 : v4_reviewHorizon == "2" ? 1 : v4_reviewHorizon == "4" ? 2 : v4_reviewHorizon == "8" ? 3 : 4
+        values := array.from(
+          v4_hasObs ? "#" + str.tostring(v4_obs.obsId) + " · " + s7_hhmm(v4_obs.obsBarTime) : VP_NA,
+          v4_hasObs ? vp_fam(v4_obs.family) + " · " + vp_dir(v4_obs.direction) : VP_NA,
+          s7_priceText(v4_hasObs ? v4_obs.signalClose : na) + " / " + s7_priceText(v4_hasObs ? v4_obs.refPrice : na),
+          s7_priceText(v4_hasObs ? v4_obs.plannedRisk : na) + " / " + s7_priceText(v4_hasObs ? v4_obs.referenceRisk : na),
+          ended + " / " + phase, VP_NA, VP_NA, VP_NA, VP_NA, VP_NA,
+          s7_priceText(array.get(mfes, horizon)) + " / " + s7_priceText(array.get(maes, horizon)),
+          s7_numText(v4_hasObs ? v4_obs.efficiencyRatio : na, "0.000") + " / " + s7_numText(efficiencyRatio, "0.000"),
+          s7_numText(v4_hasObs ? v4_obs.entryDistATR : na, "0.000"),
+          s7_numText(v4_hasObs ? v4_obs.atrPct : na, "0.00") + "% / " + s7_numText(v4_hasObs ? v4_obs.atrRatio : na, "0.00") + "x",
+          v4_hasObs ? str.tostring(v4_obs.forwardBarsSeen) + " / " + (na(v4_obs.forwardBarsAvailable) ? VP_NA : str.tostring(v4_obs.forwardBarsAvailable)) : VP_NA)
+        // Same retained ledger and descending candle sort as the parent. Never
+        // rewrite records or create history from the current analytical state.
+        if array.size(v4_events) > 0
+            array<int> stamps = array.new_int()
+            for i = 0 to array.size(v4_events) - 1
+                array.push(stamps, array.get(v4_events, i).candle)
+            array<int> indices = array.sort_indices(stamps, order.descending)
+            for i = 0 to math.min(5, array.size(indices)) - 1
+                V4Event e = array.get(v4_events, array.get(indices, i))
+                array.set(labels, 5 + i, str.format_time(e.candle, "MM-dd HH:mm", TZ))
+                array.set(values, 5 + i, v4_eventSummary(e.title))
+                array.set(historyTips, i, e.title + "\n" + e.detail)
+    else
+        string change = VP_NA
+        if array.size(s7_evtText) > 0
+            for i = 0 to array.size(s7_evtText) - 1
+                string eventText = array.get(s7_evtText, i)
+                if str.startswith(eventText, "VWAP " + VP_I_FAIL)
+                    change := "SLOPE SUPPORT LOST"
+        float move = v4_hasObs and not na(v4_obs.plannedTp1) and not na(v4_obs.signalClose) ? math.abs(v4_obs.plannedTp1 - v4_obs.signalClose) : na
+        labels := array.from("PHASE", "STOP / STOP+", "TP1 / TP+", "STOP+ UPDATE", "PLANNED TP1 MOVE", "ACTIVE ZONE", "ROOM", "YDAY HIGH / LOW", "OPEN HIGH / LOW", "ZONE BOUNDS", "RISK DETAIL", "STRUCTURE DETAIL", "REVERSAL DETAIL", "VWAP CHANGE", "READINESS · VWR / BR-RT / SQZ")
+        values := array.from(
+          s7_caseActive ? phase + (s7_trailUnlocked ? " · STOP+ ON" : "") : VP_NA,
+          s7_priceText(s7_caseActive ? s7_caseInitialStop : na) + " / " + s7_priceText(s7_caseActive ? s7_trailStop : na),
+          s7_priceText(s7_caseActive ? s7_caseTp1 : na) + (s7_caseActive and s7_tp1Reached ? " " + VP_I_PASS : "") + " / " + s7_priceText(s7_barrier) + (na(s7_barrier) ? "" : vp_roleToken(v4_barrierRole)),
+          s7_caseActive ? "v" + str.tostring(s7_trailVersion) + " · " + s7_trailReason : VP_NA,
+          s7_priceText(move),
+          vp_zoneName + vp_roleToken(vp_zoneRole), s7_priceText(s7_room),
+          s7_priceText(pdh) + " / " + s7_priceText(pdl),
+          orReady ? s7_priceText(orHigh) + " / " + s7_priceText(orLow) : VP_NA,
+          vp_zoneBounds,
+          v4_hasObs ? (v4_obs.riskPass ? "STOP DIST " + s7_priceText(v4_obs.plannedRisk) : vp_riskReason(v4_obs.rejectReason)) : VP_NA,
+          v4_hasObs ? vp_zoneText(v4_obs.zoneIdMask) + " · " + str.tostring(v4_obs.confluence) + " refs" : VP_NA,
+          s7_caseActive and s7_candLive ? "#" + str.tostring(s7_candObsId) + " · " + vp_fam(s7_candFamily) + " · " + s7_hhmm(s7_candTime) : VP_NA,
+          change,
+          (commonSetupReady ? VP_I_PASS : VP_I_WARM) + " / " + (staticCoreReady ? VP_I_PASS : VP_I_WARM) + " / " + (sqzCoreReady ? VP_I_PASS : VP_I_WARM))
+    // C: five cards across, three bands down. Labels and values use adjacent
+    // physical rows, sharing exactly the six rows occupied by B. A's unmerged
+    // first row supplies real widths to every column; no sizing/spacer row.
+    array<int> order = review ? array.from(0, 1, 2, 3, 4, 10, 11, 12, 13, 14, 5, 6, 7, 8, 9) : array.from(0, 1, 2, 5, 6, 7, 8, 10, 11, 12, 3, 4, 9, 13, 14)
+    array<int> cols = array.from(4, 6, 7, 8, 9)
+    array<int> spans = array.from(2, 1, 1, 1, 2)
+    int dropped = 0
+    if review and array.size(v4_coverage) > 0
+        for i = 0 to array.size(v4_coverage) - 1
+            V4Coverage coverage = array.get(v4_coverage, i)
+            dropped += coverage.droppedEvents + coverage.droppedRanges + coverage.droppedLevels
+    for band = 0 to 2
+        for card = 0 to 4
+            int n = array.get(order, band * 5 + card)
+            int col = array.get(cols, card)
+            int span = array.get(spans, card)
+            int row = 2 + band * 2
+            string fieldName = array.get(labels, n)
+            string fieldValue = array.get(values, n)
+            color ink = not review and n == 1 ? s7c_bad : s7c_ink2
+            color background = VPS_Q0
+            // Restore established P-04 diagnostic salience, never profit/loss.
+            if review and n == 11
+                ink := vp_erTint(efficiencyRatio, TH)
+                background := vp_erBg(efficiencyRatio, TH)
+            if review and n >= 5 and n <= 9
+                fieldName := "HISTORY " + str.tostring(card + 1) + (str.length(fieldName) > 0 ? " · " + fieldName : "")
+                if card == 0
+                    fieldName := (dropped > 0 ? "INCOMPLETE" : array.size(v4_coverage) < 3 ? "PARTIAL" : "HISTORY 1") + (str.length(array.get(labels, n)) > 0 ? " · " + array.get(labels, n) : "")
+            v4_panelCell(t, col, row, span, fieldName, s7c_ink2, v4_sectionHead, false, v4_font)
+            v4_panelCell(t, col, row + 1, span, fieldValue, ink, background, false, v4_font)
+            string detail = review and n >= 5 and n <= 9 ? array.get(historyTips, n - 5) : fieldName + " · " + fieldValue
+            if not review and n == 11
+                detail += s7_caseActive and s7_premiseTrace ? " · PREMISE " + vp_zoneText(s7_premiseMask) : ""
+            table.cell_set_tooltip(t, col, row + 1, detail)
+    true
+
+export v4_makeTopBar(Theme TH, bool s7_qOk, int s7_qPass, int s7_stripAppl, int s7_stripFlag, int v4_font, bool v4_hasObs, Obs v4_obs, int v4_topClearance, int vp_dirVal, color vp_evtBg, string vp_evtCell, color vp_evtTnt, int vp_famVal, color vp_sqzBg, string vp_sqzCell, color vp_sqzTnt, string vp_state, color vp_stateBg, string vp_stateTip, color vp_stateTnt, string vp_zoneBounds, string vp_zoneName, int vp_zoneRole) =>
+    // theme prologue: re-bind palette to the parent names (body unchanged)
+    color VPS_A14AMB = TH.VPS_A14AMB
+    color VPS_A14RED = TH.VPS_A14RED
+    color VPS_A14REF = TH.VPS_A14REF
+    color VPS_A14SUP = TH.VPS_A14SUP
+    color VPS_Q0 = TH.VPS_Q0
+    color VPS_Q4MUT = TH.VPS_Q4MUT
+    color VPS_X32AMB = TH.VPS_X32AMB
+    color VPS_X32RED = TH.VPS_X32RED
+    color s7c_amb = TH.s7c_amb
+    color s7c_bad = TH.s7c_bad
+    color s7c_card = TH.s7c_card
+    color s7c_clear = TH.s7c_clear
+    color s7c_grid = TH.s7c_grid
+    color s7c_ink2 = TH.s7c_ink2
+    color s7c_mut = TH.s7c_mut
+    color s7c_ref = TH.s7c_ref
+    color s7c_res = TH.s7c_res
+    color s7c_sup = TH.s7c_sup
+    table t = table.new(position.top_right, 14, 3, bgcolor = s7c_clear,
+      frame_color = s7c_grid, frame_width = 1, border_color = s7c_grid, border_width = 1, force_overlay = true)
+
+    string vp_entryV = v4_hasObs ? vp_entry(v4_obs.classCode) : VP_NA
+    color vp_entryInk = vp_entryV == "READY" ? s7c_sup : (vp_entryV == "EARLY" or vp_entryV == "EXTENDED" or vp_entryV == "TOO LATE") ? s7c_amb : s7c_mut
+    color vp_entryBg = vp_entryV == "READY" ? VPS_A14SUP : vp_entryV == "TOO LATE" ? VPS_X32AMB : (vp_entryV == "EARLY" or vp_entryV == "EXTENDED") ? VPS_A14AMB : v4_hasObs ? VPS_Q4MUT : VPS_Q0
+
+    string vp_riskV = VP_NA
+    color vp_riskInk = s7c_mut
+    color vp_riskBg = VPS_Q0
+    if v4_hasObs
+        vp_riskV := v4_obs.riskPass ? VP_I_PASS : VP_I_FAIL
+        vp_riskInk := v4_obs.riskPass ? s7c_sup : s7c_bad
+        vp_riskBg := v4_obs.riskPass ? VPS_A14SUP : VPS_X32RED
+
+    string vp_stV = VP_I_LOCALNA
+    color vp_stInk = s7c_mut
+    color vp_stBg = VPS_Q4MUT
+    if s7_structText == "INTACT"
+        vp_stV := VP_I_PASS
+        vp_stInk := s7c_sup
+        vp_stBg := VPS_A14SUP
+    else if s7_structText == "LOST"
+        vp_stV := VP_I_FAIL
+        vp_stInk := s7c_bad
+        vp_stBg := VPS_X32RED
+
+    bool vp_famOn = vp_famVal != 0
+    array<string> vp_v = array.from(vp_state, vp_dir(vp_dirVal), vp_famOn ? vp_fam(vp_famVal) : VP_NA, vp_entryV, vp_riskV, vp_stV, v4_eventSummary(vp_evtCell))
+    array<color> vp_i = array.from(vp_stateTnt, vp_dirTint(vp_dirVal, TH), vp_famOn ? s7c_ref : s7c_mut, vp_entryInk, vp_riskInk, vp_stInk, vp_evtTnt)
+    array<color> vp_b = array.from(vp_stateBg, vp_dirVal == DIR_LONG ? VPS_A14SUP : vp_dirVal == DIR_SHORT ? VPS_A14RED : VPS_Q4MUT, vp_famOn ? VPS_A14REF : VPS_Q0, vp_entryBg, vp_riskBg, vp_stBg, vp_evtBg)
+    // Fixed 67% strip at the top right; the left third remains available.
+    float scale = 0.67
+    array<float> weights = array.from(10.0, 8.0, 9.0, 8.0, 5.0, 8.0, 15.0, 6.0, 4.0, 4.0, 4.0, 5.0, 5.0, 9.0)
+    array<string> labels = array.from("STATE", "DIRECTION", "FAMILY", "ENTRY", "RISK", "STRUCTURE", "EVENT", "CHECKS", "RVOL", "MOM", "LOC", "FRESH", "VWAP", "SQZ")
+    for n = 0 to 13
+        table.cell(t, n, 0, "", width = array.get(weights, n) * scale / 1.08, height = math.max(0.1, v4_topClearance), bgcolor = s7c_clear)
+    table.merge_cells(t, 0, 0, 13, 0)
+    for n = 0 to 13
+        opt_cell(t, n, 1, array.get(labels, n), s7c_ink2, s7c_card, array.get(weights, n) * scale / 1.08, v4_font)
+    for vp_n = 0 to 6
+        opt_cell(t, vp_n, 2, array.get(vp_v, vp_n), array.get(vp_i, vp_n), array.get(vp_b, vp_n), 0, v4_font)
+
+    opt_cell(t, 7, 2, s7_qOk ? str.tostring(s7_qPass) + "/5" : VP_NA, s7c_ink2, VPS_Q4MUT, 0, v4_font)
+    bool vp_ok = (not na(s7_stripFlag)) and (not na(s7_stripAppl)) and s7_stripFlag >= 0 and s7_stripFlag <= 31 and s7_stripAppl >= 0 and s7_stripAppl <= 31
+    array<int> vp_qb = array.from(QB_Q1, QB_Q2, QB_Q3, QB_Q4, QB_Q5)
+    for vp_n = 0 to 4
+        int vp_bit = array.get(vp_qb, vp_n)
+        string vp_qv = VP_NA
+        color vp_qi = s7c_mut
+        color vp_qbkg = VPS_Q4MUT
+        if vp_ok
+            if not hasBit(s7_stripAppl, vp_bit)
+                vp_qv := VP_I_LOCALNA
+            else if hasBit(s7_stripFlag, vp_bit)
+                vp_qv := VP_I_PASS
+                vp_qi := s7c_sup
+                vp_qbkg := VPS_A14SUP
+            else
+                vp_qv := "NO"
+                vp_qi := s7c_ink2
+                vp_qbkg := VPS_Q0
+        opt_cell(t, vp_n + 8, 2, vp_qv, vp_qi, vp_qbkg, 0, v4_font)
+    opt_cell(t, 13, 2, str.replace_all(vp_sqzCell, "SQZ ", ""), vp_sqzTnt, vp_sqzBg, 0, v4_font)
+    table.cell_set_tooltip(t, 0, 2, vp_stateTip)
+    table.cell_set_tooltip(t, 4, 2, v4_hasObs ? s7_rejectText(v4_obs.rejectReason) : "No signal snapshot")
+    table.cell_set_tooltip(t, 5, 2, vp_zoneName + vp_roleToken(vp_zoneRole) + " · " + vp_zoneBounds)
+    table.cell_set_tooltip(t, 6, 2, vp_evtCell)
+    for n = 0 to 13
+        table.cell_set_width(t, n, 2, array.get(weights, n) * scale / 1.08)
+    t
+
